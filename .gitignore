@@ -1,0 +1,28 @@
+# Python virtual environments
+.venv/
+backend/.venv/
+
+# Python cache
+__pycache__/
+backend/__pycache__/
+
+# Python compiled files
+*.pyc
+
+# Node.js dependencies
+frontend/node_modules/
+
+# Secret environment files (VERY IMPORTANT)
+.env
+backend/.env
+frontend/.env
+
+# Log files
+*.log
+
+# OS / IDE files
+.DS_Store
+.vscode/
+
+# Add this line
+backend/vectorstore/
