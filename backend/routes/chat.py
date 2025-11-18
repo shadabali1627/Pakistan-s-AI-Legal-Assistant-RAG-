@@ -1,17 +1,18 @@
 import logging, traceback
-from typing import Iterator
+from typing import Iterator, List
 from fastapi import APIRouter
 from fastapi.responses import StreamingResponse, JSONResponse
 from pydantic import BaseModel
 import json
 
+from backend.schemas import ChatMessage  # <-- 1. IMPORT FROM SCHEMAS
 from backend.rag_pipeline import (
     answer_query,
     direct_model_test,
     search_docs,
     db_info,
     answer_query_stream,
-    DEFAULT_CHAT_MODEL  # <-- 1. IMPORT THE DEFAULT MODEL NAME
+    DEFAULT_CHAT_MODEL
 )
 
 logger = logging.getLogger(__name__)
@@ -21,6 +22,7 @@ router = APIRouter(tags=["Chat"])
 class ChatRequest(BaseModel):
     query: str
     k: int = 6
+    history: List[ChatMessage] = []  # <-- 2. ADD HISTORY FIELD
 
 
 @router.post("/chat", response_class=JSONResponse)
@@ -29,9 +31,14 @@ async def chat(req: ChatRequest):
     Standard (non-streaming) chat endpoint.
     """
     try:
-        # Pass the model from config, though answer_query uses it as a default anyway
-        result = answer_query(req.query, k=req.k, model_name=DEFAULT_CHAT_MODEL)
-        return result  # {"answer": "...", "citations": [...]}
+        # 3. PASS HISTORY TO THE BACKEND
+        result = answer_query(
+            req.query, 
+            history=req.history, 
+            k=req.k, 
+            model_name=DEFAULT_CHAT_MODEL
+        )
+        return result
     except Exception as e:
         logger.exception("Chat error")
         return JSONResponse(
@@ -44,32 +51,24 @@ async def chat(req: ChatRequest):
 async def chat_stream(req: ChatRequest):
     """
     Streaming chat endpoint.
-    Yields Server-Sent Events (SSE) as JSON objects.
-    Event types:
-    - {"citations": [...]} (Once at the beginning)
-    - {"token": "..."}     (Repeated for answer)
-    - {"error": "..."}    (If an error occurs)
     """
     def event_stream() -> Iterator[str]:
         try:
-            # 2. CALL THE STREAMING ROUTER WITH THE DEFAULT MODEL
+            # 4. PASS HISTORY TO THE STREAMING BACKEND
             stream = answer_query_stream(
-                req.query, 
+                req.query,
+                history=req.history,
                 k=req.k, 
                 model_name=DEFAULT_CHAT_MODEL
             )
             
             for event_data in stream:
-                # 3. YIELD THE JSON-SERIALIZED DICT
-                # event_data is either {"citations": [...]} or {"token": "..."}
                 yield f'data: {json.dumps(event_data)}\n\n'
             
-            # 4. SEND [DONE] SIGNAL
             yield "data: [DONE]\n\n"
             
         except Exception as e:
             logger.exception("Streaming error")
-            # 5. SEND ERROR AS A JSON OBJECT
             error_event = {"error": str(e), "type": e.__class__.__name__}
             yield f'data: {json.dumps(error_event)}\n\n'
             yield "data: [DONE]\n\n"

@@ -36,10 +36,10 @@ function SettingsIcon() {
 }
 // --- End SVG Icons ---
 
-function Bubble({ role, text }) {
+function Bubble({ role, text, citations = [] }) {
   const isUser = role === "user";
   const [copied, setCopied] = useState(false);
-  const hasText = (text ?? "").trim().length > 0;
+  const hasText = (text ?? "").trim().length > 0; // Check if text is not empty
 
   async function onCopy() {
     try {
@@ -59,16 +59,33 @@ function Bubble({ role, text }) {
           </button>
         )}
         {text}
+        
+        {/* --- THIS IS THE FIX --- */}
+        {/* We add the 'hasText' check. Don't show citations if text is empty. */}
+        {!isUser && hasText && citations.length > 0 && (
+          <div className="citations">
+            <span className="citations-title">Sources:</span>
+            {citations.map((c, i) => (
+              <div key={i} className="cite">
+                {c.source ? 
+                  (<span>{c.source.split(/[\\/]/).pop()} (p. {c.page || 1})</span>) :
+                  (<span>Source {i+1}</span>)
+                }
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
 }
 
-// const QUICK = ["Family Law", "Criminal Law", "Property Law", "Constitution"]; // <-- REMOVED
+
 const WELCOME_MESSAGE = {
   role: "assistant",
   text:
     "السلام علیکم! I'm your AI Legal Assistant for Pakistan law. I can help you with questions about Pakistani family law, criminal law, property law, constitutional matters, and more. How can I assist you today?",
+  citations: [], // Add citations property
 };
 
 // Helper to create a new chat object
@@ -155,9 +172,19 @@ export default function Chat() {
   async function send(query) {
     if (!query.trim() || loading) return;
     
+    // --- PREPARE MESSAGES ---
     const userMessage = { role: "user", text: query };
-    const botMessage = { role: "assistant", text: "" };
+    // Bot message now also includes citations
+    const botMessage = { role: "assistant", text: "", citations: [] };
     
+    // --- GET HISTORY FOR API (IN BACKEND FORMAT) ---
+    // Get all messages *before* adding the new ones
+    // Map from frontend 'text' to backend 'content'
+    const historyForAPI = activeChat.messages.map(m => ({
+      role: m.role,
+      content: m.text,
+    }));
+
     // Update state immutably: find the active chat and add new messages
     setChatHistory(prevHistory => 
       prevHistory.map(chat => 
@@ -172,10 +199,18 @@ export default function Chat() {
 
     try {
       let acc = "";
-      for await (const token of streamAnswer(query)) {
-        acc += token ?? "";
+      let citations = [];
+
+      // --- CALL API WITH HISTORY ---
+      for await (const event of streamAnswer(query, historyForAPI)) {
         
-        // Update state immutably: find active chat, find last message, update its text
+        if (event.type === "token") {
+          acc += event.data;
+        } else if (event.type === "citations") {
+          citations = event.data; // Store citations
+        }
+        
+        // --- IMMUTABLY UPDATE LAST MESSAGE WITH NEW TOKEN/CITATIONS ---
         setChatHistory(prevHistory => 
           prevHistory.map(chat => 
             chat.id === activeChatId
@@ -183,7 +218,8 @@ export default function Chat() {
                   ...chat, 
                   messages: [
                     ...chat.messages.slice(0, -1), // all messages except the last one
-                    { ...chat.messages[chat.messages.length - 1], text: acc } // update the last message
+                    // Update last message with accumulated text and citations
+                    { ...chat.messages[chat.messages.length - 1], text: acc, citations: citations } 
                   ] 
                 }
               : chat
@@ -200,7 +236,7 @@ export default function Chat() {
                 ...chat, 
                 messages: [
                   ...chat.messages.slice(0, -1),
-                  { role: "assistant", text: "Sorry, I couldn't complete that request." }
+                  { role: "assistant", text: "Sorry, I couldn't complete that request.", citations: [] }
                 ] 
               }
             : chat
@@ -209,12 +245,11 @@ export default function Chat() {
     } finally {
       setLoading(false);
       
-      // --- Auto-title the chat ---
-      // If title is "New Conversation" and we have a user prompt, set title
+      // Auto-title the chat
       setChatHistory(prevHistory =>
         prevHistory.map(chat =>
           (chat.id === activeChatId && chat.title === "New Conversation" && chat.messages.length > 2)
-            ? { ...chat, title: chat.messages[1].text.substring(0, 40) + "..." } // Title from user's first prompt
+            ? { ...chat, title: chat.messages[1].text.substring(0, 40) + "..." }
             : chat
         )
       );
@@ -270,10 +305,9 @@ export default function Chat() {
             ))}
           </div>
 
-          {/* --- UPDATED PROFILE SECTION --- */}
+          {/* PROFILE SECTION */}
           <div className="profile" ref={profileRef}>
           
-            {/* 1. THE SETTINGS MENU (POPS UP) */}
             {settingsOpen && (
               <div className="settings-menu">
                 <button
@@ -289,22 +323,17 @@ export default function Chat() {
               </div>
             )}
 
-            {/* 2. THE AVATAR (Same as before) */}
             <div className="avatar circle">{(user?.name?.[0] || "U").toUpperCase()}</div>
             
-            {/* 3. THE USER META (Same as before) */}
             <div className="profile-meta">
               <div>{user?.name || "User"}</div>
               <div className="muted small">{user?.email}</div>
             </div>
 
-            {/* 4. THE NEW SETTINGS BUTTON (Replaces eject button) */}
             <button className="ghost" onClick={() => setSettingsOpen(v => !v)} type="button">
               <SettingsIcon />
             </button>
           </div>
-          {/* --- END UPDATED PROFILE SECTION --- */}
-
         </aside>
 
         {/* Backdrop for mobile drawer */}
@@ -320,22 +349,17 @@ export default function Chat() {
           </header>
 
           <section className="messages">
-            {activeChat?.messages.map((m, i) => <Bubble key={i} role={m.role} text={m.text} />)}
+            {/* PASS CITATIONS TO BUBBLE */}
+            {activeChat?.messages.map((m, i) => (
+              <Bubble 
+                key={i} 
+                role={m.role} 
+                text={m.text} 
+                citations={m.citations} 
+              />
+            ))}
             <div ref={bottomRef} />
           </section>
-
-          {/* --- THIS ENTIRE SECTION HAS BEEN REMOVED --- */}
-          {/* <section className="quick">
-            <div className="chips">
-              {QUICK.map(q => (
-                <button key={q} className="chip" onClick={() => send(`Tell me about ${q}`)} type="button">
-                  {q}
-                </button>
-              ))}
-            </div>
-          </section>
-          */}
-          {/* --- END REMOVED SECTION --- */}
 
           <form className="composer" onSubmit={onSubmit}>
             <input

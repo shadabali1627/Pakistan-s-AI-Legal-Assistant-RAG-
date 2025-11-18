@@ -1,12 +1,13 @@
-from typing import Iterable, List, Tuple, Dict, Any, Iterator
+from typing import Iterable, List, Tuple, Dict, Any, Iterator, Optional
 import os
 import google.generativeai as genai
 
-from langchain_chroma import Chroma  # <-- UPDATED IMPORT
+from langchain_chroma import Chroma
 from langchain_core.documents import Document
 
 from backend.config import CHROMA_PATH, GOOGLE_API_KEY, COLLECTION_NAME
 from backend.utils.embedding_utils import embeddings_model
+from backend.schemas import ChatMessage
 
 genai.configure(api_key=GOOGLE_API_KEY)
 
@@ -15,9 +16,6 @@ DEFAULT_CHAT_MODEL = os.getenv("CHAT_MODEL_NAME", "gemini-1.5-flash-latest")
 # --- Helper Functions (Models, DB, Formatting) ---
 
 def _make_model(model_name: str) -> genai.GenerativeModel:
-    """
-    Creates a GenerativeModel instance.
-    """
     name = model_name if model_name.startswith("models/") else f"models/{model_name}"
     return genai.GenerativeModel(name)
 
@@ -37,7 +35,42 @@ def _doc_meta(d: Document) -> Dict[str, Any]:
     meta["page"] = meta.get("page") or meta.get("page_number") or meta.get("page_index")
     return meta
 
-# --- NEW: Query Correction (Handles Typos) ---
+# --- Query Condensing Function ---
+
+def _condense_query_with_history(
+    history: List[ChatMessage], 
+    query: str, 
+    model_name: str
+) -> str:
+    """
+    Condenses chat history and a new query into a standalone question.
+    """
+    if not history:
+        return query  # No history, no condensing needed
+
+    model = _make_model(model_name)
+    
+    # Format history for the prompt
+    history_str = "\n".join([f"{msg.role}: {msg.content}" for msg in history])
+    
+    prompt = (
+        "You are a query condensing assistant. Given a chat history and a new follow-up question, "
+        "rephrase the follow-up question to be a standalone question that includes all necessary context from the history.\n"
+        "If the follow-up is already standalone, return it as is.\n\n"
+        "--- CHAT HISTORY ---\n"
+        f"{history_str}\n\n"
+        f"--- FOLLOW-UP QUESTION ---\n{query}\n\n"
+        "--- STANDALONE QUESTION: ---\n"
+    )
+    
+    try:
+        resp = model.generate_content(prompt)
+        condensed = (getattr(resp, "text", "") or "").strip()
+        return condensed if condensed else query
+    except Exception:
+        return query  # Fail safe: return original query on error
+
+# --- Query Correction (Handles Typos) ---
 
 def _correct_query(query: str, model_name: str) -> str:
     """
@@ -86,7 +119,11 @@ def _classify_intent(query: str, model_name: str) -> str:
         "LEGAL\n"
         "User: Tell me about Section 489F.\n"
         "LEGAL\n"
+        "User: what is ppc 302\n"
+        "LEGAL\n"
         "User: Hi\n"
+        "GENERAL\n"
+        "User: hello\n"
         "GENERAL\n"
         "User: How are you?\n"
         "GENERAL\n"
@@ -107,52 +144,84 @@ def _classify_intent(query: str, model_name: str) -> str:
     except Exception:
         return "LEGAL" # Default to LEGAL on error
 
-# --- General Chat Function ---
+# --- General Chat Function (Blocking) ---
 
-def _general_chat(query: str, model_name: str) -> Dict[str, Any]:
+def _general_chat(
+    query: str, 
+    history: List[ChatMessage], 
+    model_name: str
+) -> Dict[str, Any]:
     """
     Handles general conversation by answering with the LLM directly.
-    Uses the *corrected* query.
     """
-    model = _make_model(model_name)
-    prompt = (
-        "You are a helpful and polite AI assistant. You are an expert in Pakistani law, but you can also answer general questions and engage in friendly conversation.\n"
-        "Answer the user's question concisely and politely.\n\n"
-        f"USER: {query}\n"
-        "ASSISTANT:\n"
+    # Format history for the model
+    # Note: Using "user" and "model" roles for genai API
+    formatted_history = []
+    for msg in history:
+        role = "model" if msg.role == "assistant" else "user"
+        formatted_history.append({"role": role, "parts": [msg.content]})
+    
+    system_prompt = (
+        "You are a helpful and polite AI assistant. You are an expert in Pakistani law, "
+        "but you can also answer general questions and engage in friendly conversation."
+    )
+    
+    # Handle 'models/' prefix for genai GenerativeModel
+    model_name_for_api = model_name if model_name.startswith("models/") else f"models/{model_name}"
+
+    model = genai.GenerativeModel(
+        model_name_for_api, 
+        system_instruction=system_prompt
     )
     
     try:
-        resp = model.generate_content(prompt)
+        chat_session = model.start_chat(history=formatted_history)
+        resp = chat_session.send_message(query)
         answer = (getattr(resp, "text", "") or "").strip() or "I'm not sure how to respond to that."
         return {"answer": answer, "citations": []}
     except Exception as e:
         return {"answer": f"An error occurred while processing your request: {e}", "citations": []}
 
-# --- NEW: General Chat Function (Streaming) ---
+# --- General Chat Function (Streaming) ---
 
-def _general_chat_stream(query: str, model_name: str) -> Iterator[str]:
+def _general_chat_stream(
+    query: str, 
+    history: List[ChatMessage], 
+    model_name: str
+) -> Iterator[str]:
     """
     Handles general conversation by streaming the LLM response.
-    Yields answer tokens as strings.
     """
-    model = _make_model(model_name)
-    prompt = (
-        "You are a helpful and polite AI assistant. You are an expert in Pakistani law, but you can also answer general questions and engage in friendly conversation.\n"
-        "Answer the user's question concisely and politely.\n\n"
-        f"USER: {query}\n"
-        "ASSISTANT:\n"
+    # Format history for the model
+    # Note: Using "user" and "model" roles for genai API
+    formatted_history = []
+    for msg in history:
+        role = "model" if msg.role == "assistant" else "user"
+        formatted_history.append({"role": role, "parts": [msg.content]})
+    
+    system_prompt = (
+        "You are a helpful and polite AI assistant. You are an expert in Pakistani law, "
+        "but you can also answer general questions and engage in friendly conversation."
     )
     
+    # Handle 'models/' prefix for genai GenerativeModel
+    model_name_for_api = model_name if model_name.startswith("models/") else f"models/{model_name}"
+
+    model = genai.GenerativeModel(
+        model_name_for_api, 
+        system_instruction=system_prompt
+    )
+
     try:
-        resp_stream = model.generate_content(prompt, stream=True)
+        chat_session = model.start_chat(history=formatted_history)
+        resp_stream = chat_session.send_message(query, stream=True)
         for chunk in resp_stream:
             yield (getattr(chunk, "text", "") or "")
     except Exception as e:
         yield f"An error occurred while processing your request: {e}"
 
 
-# --- RAG Pipeline Functions ---
+# --- RAG Pipeline Functions (Retrieval) ---
 
 def retrieve_with_scores(query: str, k: int = 6) -> List[Tuple[Document, float]]:
     db = _db()
@@ -169,15 +238,19 @@ def retrieve_mmr(query: str, k: int = 8) -> List[Document]:
     )
     return retriever.invoke(query)
 
-def _rag_query(query: str, k: int, model_name: str) -> Dict[str, Any]:
+# --- RAG Query (Blocking) ---
+
+def _rag_query(
+    query: str, 
+    history: List[ChatMessage], 
+    k: int, 
+    model_name: str
+) -> Dict[str, Any]:
     """
-    The original RAG (Retrieval-Augmented Generation) pipeline.
-    Uses the *corrected* query.
+    The RAG (Retrieval-Augmented Generation) pipeline.
+    Uses the *condensed and corrected* query for retrieval.
     """
-    # Use MMR (diversity search) first
     filtered_docs = retrieve_mmr(query, k=max(8, k))
-    
-    # Fallback to simple similarity search
     if not filtered_docs:
         scored = retrieve_with_scores(query, k=k)
         filtered_docs = [d for d, s in scored if 0.0 <= s <= 1.0 and s >= 0.20] or [d for d, _ in scored]
@@ -186,15 +259,24 @@ def _rag_query(query: str, k: int, model_name: str) -> Dict[str, Any]:
         return {"answer": "I cannot find any documents related to that topic.", "citations": []}
 
     context = _format_docs(filtered_docs)
+    history_str = "\n".join([f"{msg.role}: {msg.content}" for msg in history])
     
+    # --- THIS PROMPT IS UPDATED ---
     prompt = (
-        "You are an AI Legal Assistant for Pakistan law. Answer the user's question using only the provided context.\n"
+        "You are an AI Legal Assistant for Pakistan law. Answer the user's question using *only* the provided context.\n"
         "Your answer must be based *solely* on the text in the context. Do not use outside knowledge.\n"
-        "If the context contains the answer, extract it and present it clearly. Be concise.\n"
-        "If the answer is not explicitly stated in the context, reply *exactly* with the following text:\n"
+        "Read the context carefully and synthesize a clear and concise answer.\n"
+        "If the context contains relevant information, explain the topic or answer the question based on that text.\n"
+        "If the context is completely irrelevant or does not contain any information to answer the question, *then and only then* reply with:\n"
         "I cannot find the answer in the provided documents.\n\n"
-        f"CONTEXT:\n{context}\n\nQUESTION:\n{query}\n\nANSWER:\n"
+        "--- CONTEXT ---\n"
+        f"{context}\n\n"
+        "--- CHAT HISTORY ---\n"
+        f"{history_str}\n\n"
+        f"--- QUESTION ---\n{query}\n\n" # This `query` is the condensed & corrected one
+        "--- ANSWER ---\n"
     )
+    # --- END OF UPDATE ---
 
     model = _make_model(model_name)
     resp = model.generate_content(prompt)
@@ -203,12 +285,16 @@ def _rag_query(query: str, k: int, model_name: str) -> Dict[str, Any]:
     return {"answer": answer, "citations": citations}
 
 
-# --- NEW: RAG Query (Streaming) ---
+# --- RAG Query (Streaming) ---
 
-def _rag_query_stream(query: str, k: int, model_name: str) -> Iterator[Dict[str, Any]]:
+def _rag_query_stream(
+    query: str, 
+    history: List[ChatMessage], 
+    k: int, 
+    model_name: str
+) -> Iterator[Dict[str, Any]]:
     """
     RAG pipeline that streams the result.
-    Yields dicts: `{"citations": [...]}` first, then `{"token": "..."}`.
     """
     # 1. Retrieval (Blocking)
     filtered_docs = retrieve_mmr(query, k=max(8, k))
@@ -227,14 +313,24 @@ def _rag_query_stream(query: str, k: int, model_name: str) -> Iterator[Dict[str,
 
     # 3. Stream the answer
     context = _format_docs(filtered_docs)
+    history_str = "\n".join([f"{msg.role}: {msg.content}" for msg in history])
+    
+    # --- THIS PROMPT IS UPDATED ---
     prompt = (
-        "You are an AI Legal Assistant for Pakistan law. Answer the user's question using only the provided context.\n"
+        "You are an AI Legal Assistant for Pakistan law. Answer the user's question using *only* the provided context.\n"
         "Your answer must be based *solely* on the text in the context. Do not use outside knowledge.\n"
-        "If the context contains the answer, extract it and present it clearly. Be concise.\n"
-        "If the answer is not explicitly stated in the context, reply *exactly* with the following text:\n"
+        "Read the context carefully and synthesize a clear and concise answer.\n"
+        "If the context contains relevant information, explain the topic or answer the question based on that text.\n"
+        "If the context is completely irrelevant or does not contain any information to answer the question, *then and only then* reply with:\n"
         "I cannot find the answer in the provided documents.\n\n"
-        f"CONTEXT:\n{context}\n\nQUESTION:\n{query}\n\nANSWER:\n"
+        "--- CONTEXT ---\n"
+        f"{context}\n\n"
+        "--- CHAT HISTORY ---\n"
+        f"{history_str}\n\n"
+        f"--- QUESTION ---\n{query}\n\n" # This `query` is the condensed & corrected one
+        "--- ANSWER ---\n"
     )
+    # --- END OF UPDATE ---
 
     model = _make_model(model_name)
     try:
@@ -245,55 +341,73 @@ def _rag_query_stream(query: str, k: int, model_name: str) -> Iterator[Dict[str,
         yield {"token": f"An error occurred during streaming: {e}"}
 
 
-# --- Main Entry Point ---
+# --- Main Entry Point (Blocking) ---
+def answer_query(
+    query: str, 
+    history: Optional[List[ChatMessage]] = None, 
+    k: int = 6, 
+    model_name: str = DEFAULT_CHAT_MODEL
+) -> Dict[str, Any]:
+    
+    history_list = history or []
 
-def answer_query(query: str, k: int = 6, model_name: str = DEFAULT_CHAT_MODEL) -> Dict[str, Any]:
-    """
-    Main router function. Corrects query, classifies intent, and calls the correct pipeline.
-    """
-    # --- NEW STEP 1: Correct the query first ---
-    corrected_query = _correct_query(query, model_name)
+    # --- STEP 1: Classify the RAW query first ---
+    raw_intent = _classify_intent(query, model_name)
     
-    # Step 2: Classify the user's intent *using the corrected query*
-    intent = _classify_intent(corrected_query, model_name)
+    # --- STEP 2: Route based on raw intent ---
+    if raw_intent == "GENERAL":
+        # It's a greeting or general question, go straight to the fast chat model.
+        # We pass the raw query and full history for a natural conversation.
+        return _general_chat(query, history_list, model_name)
     
-    # Step 3: Route to the correct handler *using the corrected query*
-    if intent == "GENERAL":
-        return _general_chat(corrected_query, model_name)
     else:
-        # Default to LEGAL (RAG)
-        return _rag_query(corrected_query, k, model_name)
+        # It's a LEGAL query, so now we run the full (slower) RAG pipeline.
+        
+        # Step 2a: Condense query with history
+        condensed_query = _condense_query_with_history(history_list, query, model_name)
+        
+        # Step 2b: Correct the condensed query
+        corrected_query = _correct_query(condensed_query, model_name)
+        
+        # Step 2c: Run the RAG pipeline
+        return _rag_query(corrected_query, history_list, k, model_name)
 
-# --- NEW: Main Entry Point (Streaming) ---
+# --- Main Entry Point (Streaming) ---
+def answer_query_stream(
+    query: str, 
+    history: Optional[List[ChatMessage]] = None, 
+    k: int = 6, 
+    model_name: str = DEFAULT_CHAT_MODEL
+) -> Iterator[Dict[str, Any]]:
+    
+    history_list = history or []
 
-def answer_query_stream(query: str, k: int = 6, model_name: str = DEFAULT_CHAT_MODEL) -> Iterator[Dict[str, Any]]:
-    """
-    Main streaming router. Corrects, classifies, then streams from the correct pipeline.
-    Yields dicts: `{"citations": [...]}` first, then `{"token": "..."}`.
-    """
-    # Step 1: Correct the query (Blocking)
-    corrected_query = _correct_query(query, model_name)
+    # --- STEP 1: Classify the RAW query first ---
+    raw_intent = _classify_intent(query, model_name)
     
-    # Step 2: Classify intent (Blocking)
-    intent = _classify_intent(corrected_query, model_name)
-    
-    # Step 3: Route to the correct streaming handler
-    if intent == "GENERAL":
-        # General chat has no citations, so send empty list first
+    # --- STEP 2: Route based on raw intent ---
+    if raw_intent == "GENERAL":
+        # It's a greeting, use the fast path.
         yield {"citations": []}
-        # Yield tokens
-        for token in _general_chat_stream(corrected_query, model_name):
+        for token in _general_chat_stream(query, history_list, model_name):
             yield {"token": token}
+    
     else:
-        # RAG stream handles yielding citations first, then tokens
-        for event in _rag_query_stream(corrected_query, k, model_name):
+        # It's a LEGAL query, run the full RAG pipeline.
+        
+        # Step 2a: Condense query with history
+        condensed_query = _condense_query_with_history(history_list, query, model_name)
+        
+        # Step 2b: Correct the condensed query
+        corrected_query = _correct_query(condensed_query, model_name)
+        
+        # Step 2c: Run the RAG streaming pipeline
+        for event in _rag_query_stream(corrected_query, history_list, k, model_name):
             yield event
 
 # --- Debug/Diagnostics Functions ---
 
 def search_docs(query: str, k: int = 8):
-    # This debug function will still use the *original* query
-    # To test correction, use the main /chat endpoint
     results = retrieve_with_scores(query, k=k)
     out = []
     for i, (d, s) in enumerate(results, 1):
@@ -304,7 +418,6 @@ def search_docs(query: str, k: int = 8):
     return out
 
 def direct_model_test(model_name: str = DEFAULT_CHAT_MODEL) -> str:
-    # Use the simplified _make_model function
     return (getattr(_make_model(model_name).generate_content("Reply with a single word: pong"), "text", "") or "").strip()
 
 def db_info():
