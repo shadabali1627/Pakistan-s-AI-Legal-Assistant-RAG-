@@ -3,6 +3,11 @@ import logging
 from pathlib import Path
 from dotenv import load_dotenv
 
+# --- ADD THIS LINE AT THE TOP ---
+# Disables ChromaDB's anonymous telemetry to prevent console errors
+os.environ["ANONYMIZED_TELEMETRY"] = "false"
+# ---------------------------------
+
 logging.basicConfig(level=logging.INFO)
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -10,7 +15,7 @@ load_dotenv(dotenv_path=BASE_DIR / ".env", override=False)
 
 # --- Keys & models ---
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
-MODEL_NAME = os.getenv("MODEL_NAME", "gemini-1.5-flash-002")
+MODEL_NAME = os.getenv("MODEL_NAME", "gemini-1.5-flash-latest")
 EMBEDDING_MODEL_NAME = os.getenv("EMBEDDING_MODEL_NAME", "models/text-embedding-004")
 
 # --- Paths (absolute) ---

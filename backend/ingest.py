@@ -4,7 +4,7 @@ import sys
 from pathlib import Path
 from typing import List
 
-from langchain_community.vectorstores import Chroma
+from langchain_chroma import Chroma  # <-- UPDATED IMPORT
 from langchain_core.documents import Document
 from langchain_community.document_loaders import (
     PyPDFLoader,

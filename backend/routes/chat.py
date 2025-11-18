@@ -3,13 +3,15 @@ from typing import Iterator
 from fastapi import APIRouter
 from fastapi.responses import StreamingResponse, JSONResponse
 from pydantic import BaseModel
-import json  # <-- 1. IMPORT JSON
+import json
 
 from backend.rag_pipeline import (
     answer_query,
     direct_model_test,
     search_docs,
     db_info,
+    answer_query_stream,
+    DEFAULT_CHAT_MODEL  # <-- 1. IMPORT THE DEFAULT MODEL NAME
 )
 
 logger = logging.getLogger(__name__)
@@ -23,8 +25,12 @@ class ChatRequest(BaseModel):
 
 @router.post("/chat", response_class=JSONResponse)
 async def chat(req: ChatRequest):
+    """
+    Standard (non-streaming) chat endpoint.
+    """
     try:
-        result = answer_query(req.query, k=req.k)
+        # Pass the model from config, though answer_query uses it as a default anyway
+        result = answer_query(req.query, k=req.k, model_name=DEFAULT_CHAT_MODEL)
         return result  # {"answer": "...", "citations": [...]}
     except Exception as e:
         logger.exception("Chat error")
@@ -36,21 +42,36 @@ async def chat(req: ChatRequest):
 
 @router.post("/chat/stream")
 async def chat_stream(req: ChatRequest):
+    """
+    Streaming chat endpoint.
+    Yields Server-Sent Events (SSE) as JSON objects.
+    Event types:
+    - {"citations": [...]} (Once at the beginning)
+    - {"token": "..."}     (Repeated for answer)
+    - {"error": "..."}    (If an error occurs)
+    """
     def event_stream() -> Iterator[str]:
         try:
-            result = answer_query(req.query, k=req.k)
-            text = result.get("answer", "")
-            for token in text.split():
-                # 2. USE JSON.DUMPS FOR VALID JSON
-                yield f'data: {json.dumps({"token": token + " "})}\n\n'
+            # 2. CALL THE STREAMING ROUTER WITH THE DEFAULT MODEL
+            stream = answer_query_stream(
+                req.query, 
+                k=req.k, 
+                model_name=DEFAULT_CHAT_MODEL
+            )
             
-            # 3. SEND CITATIONS AS VALID JSON
-            yield f'data: {json.dumps({"citations": result.get("citations", [])})}\n\n'
+            for event_data in stream:
+                # 3. YIELD THE JSON-SERIALIZED DICT
+                # event_data is either {"citations": [...]} or {"token": "..."}
+                yield f'data: {json.dumps(event_data)}\n\n'
+            
+            # 4. SEND [DONE] SIGNAL
             yield "data: [DONE]\n\n"
+            
         except Exception as e:
             logger.exception("Streaming error")
-            # ALSO USE JSON.DUMPS FOR ERRORS
-            yield f'data: {json.dumps({"token": f"Streaming error: {e}"})}\n\n'
+            # 5. SEND ERROR AS A JSON OBJECT
+            error_event = {"error": str(e), "type": e.__class__.__name__}
+            yield f'data: {json.dumps(error_event)}\n\n'
             yield "data: [DONE]\n\n"
 
     return StreamingResponse(event_stream(), media_type="text/event-stream; charset=utf-8")
