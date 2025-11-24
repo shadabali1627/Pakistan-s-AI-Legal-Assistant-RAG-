@@ -1,3 +1,11 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
-  <text y="90" font-size="90">⚖️</text>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="grad1" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#3b82f6;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#2563eb;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+  <circle cx="256" cy="256" r="240" fill="url(#grad1)" opacity="0.1" />
+  <path fill="url(#grad1)" d="M256 64c-11.05 0-20 8.95-20 20v48h-88c-11.05 0-20 8.95-20 20v32c0 11.05 8.95 20 20 20h16v128c0 35.35 28.65 64 64 64s64-28.65 64-64V204h16c11.05 0 20-8.95 20-20v-32c0-11.05-8.95-20-20-20h-88V84c0-11.05-8.95-20-20-20zm-108 88h-16c-35.35 0-64 28.65-64 64v32c0 35.35 28.65 64 64 64h16c35.35 0 64-28.65 64-64v-32c0-35.35-28.65-64-64-64zm216 0h-16c-35.35 0-64 28.65-64 64v32c0 35.35 28.65 64 64 64h16c35.35 0 64-28.65 64-64v-32c0-35.35-28.65-64-64-64z"/>
+  <path fill="#ffffff" d="M256 100v40h-90v-40h90zm0 0v40h90v-40h-90z" opacity="0.3"/>
 </svg>

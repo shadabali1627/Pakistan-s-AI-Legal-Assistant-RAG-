@@ -2,6 +2,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../auth";
 import { streamAnswer } from "../api";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 // --- SVG Icons ---
 function CopyIcon() {
@@ -22,14 +24,14 @@ function CheckIcon() {
 function MenuIcon() {
   return (
     <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-      <path d="M3 6h18M3 12h18M3 18h18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+      <path d="M3 6h18M3 12h18M3 18h18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
     </svg>
   );
 }
 function SettingsIcon() {
   return (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M12.22 2h-4.44l-1.94 4.5-.44.9-.86.2a10 10 0 00-3.16 2.06l-.68.68-.86-.2-1.94-4.5v4.44l4.5 1.94.9.44.2.86a10 10 0 002.06 3.16l.68.68-.2.86-4.5 1.94v4.44l4.5-1.94.9-.44.2-.86a10 10 0 003.16-2.06l.68-.68.86.2 1.94 4.5h4.44l1.94-4.5.44-.9.86-.2a10 10 0 003.16-2.06l.68-.68.86.2 1.94 4.5v-4.44l-4.5-1.94-.9-.44-.2-.86a10 10 0 00-2.06-3.16l-.68-.68.2-.86 4.5-1.94V2l-4.5 1.94-.9.44-.2.86a10 10 0 00-3.16 2.06l-.68.68-.86-.2L12.22 2z"/>
+      <path d="M12.22 2h-4.44l-1.94 4.5-.44.9-.86.2a10 10 0 00-3.16 2.06l-.68.68-.86-.2-1.94-4.5v4.44l4.5 1.94.9.44.2.86a10 10 0 002.06 3.16l.68.68-.2.86-4.5 1.94v4.44l4.5-1.94.9-.44.2-.86a10 10 0 003.16-2.06l.68-.68.86.2 1.94 4.5h4.44l1.94-4.5.44-.9.86-.2a10 10 0 003.16-2.06l.68-.68.86.2 1.94 4.5v-4.44l-4.5-1.94-.9-.44-.2-.86a10 10 0 00-2.06-3.16l-.68-.68.2-.86 4.5-1.94V2l-4.5 1.94-.9.44-.2.86a10 10 0 00-3.16 2.06l-.68.68-.86-.2L12.22 2z" />
       <circle cx="12" cy="12" r="3" />
     </svg>
   );
@@ -46,30 +48,34 @@ function Bubble({ role, text, citations = [] }) {
       await navigator.clipboard.writeText(text || "");
       setCopied(true);
       setTimeout(() => setCopied(false), 900);
-    } catch {}
+    } catch { }
   }
 
   return (
     <div className={`msg ${isUser ? "me" : "bot"}`}>
-      {!isUser && <div className="avatar">⚖️</div>}
+      {!isUser && <div className="avatar"><img src="/logo.svg" alt="AI" style={{ width: '20px', height: '20px' }} /></div>}
       <div className={`bubble ${isUser ? "user" : "assistant"}`}>
         {!isUser && hasText && (
           <button className="copy" onClick={onCopy} title="Copy" type="button">
             {copied ? <CheckIcon /> : <CopyIcon />}
           </button>
         )}
-        {text}
-        
-        {/* --- THIS IS THE FIX --- */}
-        {/* We add the 'hasText' check. Don't show citations if text is empty. */}
+        {isUser ? (
+          text
+        ) : (
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>
+            {text}
+          </ReactMarkdown>
+        )}
+
         {!isUser && hasText && citations.length > 0 && (
           <div className="citations">
             <span className="citations-title">Sources:</span>
             {citations.map((c, i) => (
               <div key={i} className="cite">
-                {c.source ? 
+                {c.source ?
                   (<span>{c.source.split(/[\\/]/).pop()} (p. {c.page || 1})</span>) :
-                  (<span>Source {i+1}</span>)
+                  (<span>Source {i + 1}</span>)
                 }
               </div>
             ))}
@@ -119,7 +125,7 @@ export default function Chat() {
   // --- CHAT HISTORY STATE ---
   const [chatHistory, setChatHistory] = useState(() => [createNewChat()]);
   const [activeChatId, setActiveChatId] = useState(chatHistory[0].id);
-  
+
   const [draft, setDraft] = useState("");
   const [loading, setLoading] = useState(false);
   const bottomRef = useRef(null);
@@ -155,7 +161,7 @@ export default function Chat() {
   }, [activeChat]);
 
   // Scroll to bottom when messages in the active chat change
-  useEffect(() => { 
+  useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [activeChat?.messages, loading]);
 
@@ -171,12 +177,12 @@ export default function Chat() {
 
   async function send(query) {
     if (!query.trim() || loading) return;
-    
+
     // --- PREPARE MESSAGES ---
     const userMessage = { role: "user", text: query };
     // Bot message now also includes citations
     const botMessage = { role: "assistant", text: "", citations: [] };
-    
+
     // --- GET HISTORY FOR API (IN BACKEND FORMAT) ---
     // Get all messages *before* adding the new ones
     // Map from frontend 'text' to backend 'content'
@@ -186,14 +192,14 @@ export default function Chat() {
     }));
 
     // Update state immutably: find the active chat and add new messages
-    setChatHistory(prevHistory => 
-      prevHistory.map(chat => 
+    setChatHistory(prevHistory =>
+      prevHistory.map(chat =>
         chat.id === activeChatId
           ? { ...chat, messages: [...chat.messages, userMessage, botMessage] }
           : chat
       )
     );
-    
+
     setDraft("");
     setLoading(true);
 
@@ -203,25 +209,25 @@ export default function Chat() {
 
       // --- CALL API WITH HISTORY ---
       for await (const event of streamAnswer(query, historyForAPI)) {
-        
+
         if (event.type === "token") {
           acc += event.data;
         } else if (event.type === "citations") {
           citations = event.data; // Store citations
         }
-        
+
         // --- IMMUTABLY UPDATE LAST MESSAGE WITH NEW TOKEN/CITATIONS ---
-        setChatHistory(prevHistory => 
-          prevHistory.map(chat => 
+        setChatHistory(prevHistory =>
+          prevHistory.map(chat =>
             chat.id === activeChatId
-              ? { 
-                  ...chat, 
-                  messages: [
-                    ...chat.messages.slice(0, -1), // all messages except the last one
-                    // Update last message with accumulated text and citations
-                    { ...chat.messages[chat.messages.length - 1], text: acc, citations: citations } 
-                  ] 
-                }
+              ? {
+                ...chat,
+                messages: [
+                  ...chat.messages.slice(0, -1), // all messages except the last one
+                  // Update last message with accumulated text and citations
+                  { ...chat.messages[chat.messages.length - 1], text: acc, citations: citations }
+                ]
+              }
               : chat
           )
         );
@@ -229,22 +235,22 @@ export default function Chat() {
     } catch (e) {
       console.error(e);
       // Handle error: update the last message with an error text
-      setChatHistory(prevHistory => 
-        prevHistory.map(chat => 
+      setChatHistory(prevHistory =>
+        prevHistory.map(chat =>
           chat.id === activeChatId
-            ? { 
-                ...chat, 
-                messages: [
-                  ...chat.messages.slice(0, -1),
-                  { role: "assistant", text: "Sorry, I couldn't complete that request.", citations: [] }
-                ] 
-              }
+            ? {
+              ...chat,
+              messages: [
+                ...chat.messages.slice(0, -1),
+                { role: "assistant", text: "Sorry, I couldn't complete that request.", citations: [] }
+              ]
+            }
             : chat
         )
       );
     } finally {
       setLoading(false);
-      
+
       // Auto-title the chat
       setChatHistory(prevHistory =>
         prevHistory.map(chat =>
@@ -277,7 +283,7 @@ export default function Chat() {
         {/* Sidebar */}
         <aside className={`sidebar ${sidebarOpen ? "open" : ""}`}>
           <div className="brand-row">
-            <div className="logo sm">⚖️</div>
+            <div className="logo sm"><img src="/logo.svg" alt="Logo" style={{ width: '24px', height: '24px' }} /></div>
             <div>
               <div className="app-title">AI Legal Assistant</div>
               <div className="badge">Pakistan Law</div>
@@ -291,8 +297,8 @@ export default function Chat() {
           {/* CHAT HISTORY LIST */}
           <div className="convo">
             {chatHistory.map(chat => (
-              <div 
-                key={chat.id} 
+              <div
+                key={chat.id}
                 className={`convo-item ${chat.id === activeChatId ? 'active' : ''}`}
                 onClick={() => {
                   setActiveChatId(chat.id);
@@ -307,7 +313,7 @@ export default function Chat() {
 
           {/* PROFILE SECTION */}
           <div className="profile" ref={profileRef}>
-          
+
             {settingsOpen && (
               <div className="settings-menu">
                 <button
@@ -324,7 +330,7 @@ export default function Chat() {
             )}
 
             <div className="avatar circle">{(user?.name?.[0] || "U").toUpperCase()}</div>
-            
+
             <div className="profile-meta">
               <div>{user?.name || "User"}</div>
               <div className="muted small">{user?.email}</div>
@@ -351,25 +357,27 @@ export default function Chat() {
           <section className="messages">
             {/* PASS CITATIONS TO BUBBLE */}
             {activeChat?.messages.map((m, i) => (
-              <Bubble 
-                key={i} 
-                role={m.role} 
-                text={m.text} 
-                citations={m.citations} 
+              <Bubble
+                key={i}
+                role={m.role}
+                text={m.text}
+                citations={m.citations}
               />
             ))}
             <div ref={bottomRef} />
           </section>
 
-          <form className="composer" onSubmit={onSubmit}>
-            <input
-              placeholder="Ask a question about Pakistan law..."
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              disabled={loading}
-            />
-            <button className="send" disabled={loading} title="Send" type="submit">➤</button>
-          </form>
+          <div className="composer-container">
+            <form className="composer" onSubmit={onSubmit}>
+              <input
+                placeholder="Ask a question about Pakistan law..."
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                disabled={loading}
+              />
+              <button className="send" disabled={loading} title="Send" type="submit">➤</button>
+            </form>
+          </div>
 
           <p className="disclaimer">
             This AI assistant provides general information about Pakistan law and does not constitute legal advice.
