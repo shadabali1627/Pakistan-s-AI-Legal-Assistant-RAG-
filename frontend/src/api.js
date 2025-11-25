@@ -1,4 +1,5 @@
-const API_BASE = import.meta.env.VITE_API_URL || "http://51.21.201.20:8000";
+// Use your new secure domain (Note the /api at the end)
+const API_BASE = "https://pakistan-legal-assistant.gleeze.com/api";
 
 /**
  * Streams tokens from POST /api/chat/stream
