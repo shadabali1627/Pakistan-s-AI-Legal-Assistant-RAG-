@@ -1,11 +1,13 @@
 import logging, traceback
 from typing import Iterator, List
+from datetime import datetime
 from fastapi import APIRouter
 from fastapi.responses import StreamingResponse, JSONResponse
 from pydantic import BaseModel
 import json
 
 from backend.schemas import ChatMessage  # <-- 1. IMPORT FROM SCHEMAS
+from backend.database import get_chat_collection  # <-- IMPORT DB ACCESS
 from backend.rag_pipeline import (
     answer_query,
     direct_model_test,
@@ -38,6 +40,21 @@ async def chat(req: ChatRequest):
             k=req.k, 
             model_name=DEFAULT_CHAT_MODEL
         )
+        
+        # --- Save to MongoDB ---
+        try:
+            chats_col = get_chat_collection()
+            if chats_col is not None:
+                await chats_col.insert_one({
+                    "query": req.query,
+                    "response": result.get("answer", ""),
+                    "sources": [s.get("source", "unknown") for s in result.get("sources", [])] if isinstance(result.get("sources"), list) else [],
+                    "timestamp": datetime.utcnow()
+                })
+        except Exception as db_err:
+            logger.error(f"Failed to save chat to MongoDB: {db_err}")
+        # -----------------------
+
         return result
     except Exception as e:
         logger.exception("Chat error")

@@ -10,7 +10,7 @@ if (!window.crypto) {
   window.crypto = {};
 }
 if (!window.crypto.randomUUID) {
-  window.crypto.randomUUID = function() {
+  window.crypto.randomUUID = function () {
     return "10000000-1000-4000-8000-100000000000".replace(/[018]/g, c =>
       (c ^ (Math.random() * 16) >> c / 4).toString(16)
     );
@@ -18,8 +18,14 @@ if (!window.crypto.randomUUID) {
 }
 // -------------------------------------------------------------
 
+import { GoogleOAuthProvider } from '@react-oauth/google';
+
+const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID;
+
 createRoot(document.getElementById("root")).render(
-  <BrowserRouter>
-    <App />
-  </BrowserRouter>
+  <GoogleOAuthProvider clientId={GOOGLE_CLIENT_ID}>
+    <BrowserRouter>
+      <App />
+    </BrowserRouter>
+  </GoogleOAuthProvider>
 );

@@ -16,3 +16,6 @@ google-generativeai
 chromadb
 pypdf
 unstructured[doc,docx]
+motor
+google-auth
+passlib[bcrypt]

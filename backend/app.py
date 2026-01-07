@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from backend.routes import chat  # registers endpoints
+from backend.routes import auth  # registers endpoints
 from backend.config import DATA_PATH, CHROMA_PATH, VECTOR_STORE_BACKEND
 
 app = FastAPI(title="AI Legal Assistant RAG API")
@@ -19,3 +20,4 @@ def root():
 
 # Mount routes
 app.include_router(chat.router, prefix="/api")
+app.include_router(auth.router, prefix="/api")

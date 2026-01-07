@@ -29,6 +29,16 @@ CHROMA_PATH.mkdir(parents=True, exist_ok=True)
 # --- IMPORTANT: single collection name everywhere ---
 COLLECTION_NAME = os.getenv("COLLECTION_NAME", "legal_docs")
 
+# --- MongoDB ---
+MONGODB_URL = os.getenv("MONGODB_URL")
+DATABASE_NAME = os.getenv("DATABASE_NAME", "ai-legal-assistant")
+
+# --- Google OAuth ---
+GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
+GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
+
+
+
 logging.info(f"DATA_PATH: {DATA_PATH}")
 logging.info(f"VECTOR_STORE_BACKEND: {VECTOR_STORE_BACKEND}")
 logging.info(f"CHROMA_PATH: {CHROMA_PATH}")

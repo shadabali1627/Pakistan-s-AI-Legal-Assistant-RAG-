@@ -11,7 +11,7 @@ from backend.schemas import ChatMessage
 
 genai.configure(api_key=GOOGLE_API_KEY)
 
-DEFAULT_CHAT_MODEL = os.getenv("CHAT_MODEL_NAME", "gemini-1.5-flash-latest")
+DEFAULT_CHAT_MODEL = os.getenv("CHAT_MODEL_NAME", "gemma-2-9b-it")
 
 # --- Helper Functions (Models, DB, Formatting) ---
 
@@ -27,7 +27,13 @@ def _db() -> Chroma:
     )
 
 def _format_docs(docs: Iterable[Document]) -> str:
-    return "\n\n".join(doc.page_content for doc in docs)
+    import re
+    cleaned_docs = []
+    for doc in docs:
+        # Normalize whitespace
+        content = re.sub(r'\s+', ' ', doc.page_content).strip()
+        cleaned_docs.append(content)
+    return "\n\n".join(cleaned_docs)
 
 def _doc_meta(d: Document) -> Dict[str, Any]:
     meta = dict(getattr(d, "metadata", {}) or {})
@@ -109,13 +115,22 @@ def _classify_intent(query: str, model_name: str) -> str:
     Classifies the user's query as 'LEGAL' or 'GENERAL'.
     Uses the *corrected* query.
     """
+    # Simple keyword check for obvious legal terms to save an LLM call or force LEGAL
+    obvious_keywords = ["law", "act", "ordinance", "section", "article", "constitution", "court", "judge", "rights", "legal", "ppc", "crpc", "civil", "crime", "punishment"]
+    if any(k in query.lower() for k in obvious_keywords):
+        return "LEGAL"
+
     model = _make_model(model_name)
     
     prompt = (
-        "You are an intent classifier. Your job is to determine if the user's question is about Pakistani law or a general question/greeting.\n"
+        "You are an intent classifier. Your job is to determine if the user's question is about Pakistani law, legal concepts, human rights, or government procedures.\n"
         "Respond with only a single word: 'LEGAL' or 'GENERAL'.\n\n"
         "Examples:\n"
         "User: What is the procedure for divorce?\n"
+        "LEGAL\n"
+        "User: Explain human rights.\n" # New Example
+        "LEGAL\n"
+        "User: rights of arrest person\n"
         "LEGAL\n"
         "User: Tell me about Section 489F.\n"
         "LEGAL\n"
@@ -167,16 +182,17 @@ def _general_chat(
     )
     
     # Handle 'models/' prefix for genai GenerativeModel
+    # Handle 'models/' prefix for genai GenerativeModel
     model_name_for_api = model_name if model_name.startswith("models/") else f"models/{model_name}"
 
-    model = genai.GenerativeModel(
-        model_name_for_api, 
-        system_instruction=system_prompt
-    )
+    # REMOVED system_instruction
+    model = genai.GenerativeModel(model_name_for_api)
+    
+    full_query = f"{system_prompt}\n\n{query}"
     
     try:
         chat_session = model.start_chat(history=formatted_history)
-        resp = chat_session.send_message(query)
+        resp = chat_session.send_message(full_query)
         answer = (getattr(resp, "text", "") or "").strip() or "I'm not sure how to respond to that."
         return {"answer": answer, "citations": []}
     except Exception as e:
@@ -207,16 +223,21 @@ def _general_chat_stream(
     # Handle 'models/' prefix for genai GenerativeModel
     model_name_for_api = model_name if model_name.startswith("models/") else f"models/{model_name}"
 
-    model = genai.GenerativeModel(
-        model_name_for_api, 
-        system_instruction=system_prompt
-    )
+    # REMOVED system_instruction
+    model = genai.GenerativeModel(model_name_for_api)
+
+    full_query = f"{system_prompt}\n\n{query}"
 
     try:
         chat_session = model.start_chat(history=formatted_history)
-        resp_stream = chat_session.send_message(query, stream=True)
+        resp_stream = chat_session.send_message(full_query, stream=True)
         for chunk in resp_stream:
-            yield (getattr(chunk, "text", "") or "")
+            try:
+                 text_chunk = chunk.text
+            except Exception:
+                 continue
+            if text_chunk:
+                yield text_chunk
     except Exception as e:
         yield f"An error occurred while processing your request: {e}"
 
@@ -263,11 +284,16 @@ def _rag_query(
     
     # --- THIS PROMPT IS UPDATED ---
     prompt = (
-        "You are an AI Legal Assistant for Pakistan law. Answer the user's question using *only* the provided context.\n"
-        "Your answer must be based *solely* on the text in the context. Do not use outside knowledge.\n"
-        "Read the context carefully and synthesize a clear and concise answer.\n"
+        "You are an AI Legal Assistant for Pakistan law. Answer the user's question using the provided context.\n"
+        "IMPORTANT NOTE ON CONTEXT QUALITY:\n"
+        "The provided context contains extracted text from PDFs which has severe formatting issues.\n"
+        "Specifically, many words have spaces inserted inside them (e.g., 'A rticle' instead of 'Article', 'w ith' instead of 'with', 'enem y' instead of 'enemy', 'tim e' for 'time').\n"
+        "You MUST mentally repair these broken words to reconstruct the true meaning. Do NOT ignore text just because it looks broken.\n"
+        "The text IS relevant, assume it is.\n\n"
+        "Your answer must be based *solely* on the information in the context. Do not use outside knowledge.\n"
+        "Read the context carefully, repair the broken words, and synthesize a clear and concise answer.\n"
         "If the context contains relevant information, explain the topic or answer the question based on that text.\n"
-        "If the context is completely irrelevant or does not contain any information to answer the question, *then and only then* reply with:\n"
+        "If, after repairing the text, the context is STILL completely irrelevant or does not contain any information to answer the question, reply with:\n"
         "I cannot find the answer in the provided documents.\n\n"
         "--- CONTEXT ---\n"
         f"{context}\n\n"
@@ -287,6 +313,8 @@ def _rag_query(
 
 # --- RAG Query (Streaming) ---
 
+# --- RAG Query (Streaming) ---
+
 def _rag_query_stream(
     query: str, 
     history: List[ChatMessage], 
@@ -294,51 +322,67 @@ def _rag_query_stream(
     model_name: str
 ) -> Iterator[Dict[str, Any]]:
     """
-    RAG pipeline that streams the result.
+    RAG pipeline that streams the result with status updates.
     """
-    # 1. Retrieval (Blocking)
+    # 1. Status Update: Searching
+    yield {"type": "status", "data": "Searching knowledge base..."}
+    
+    # 1a. Retrieval (Blocking)
     filtered_docs = retrieve_mmr(query, k=max(8, k))
     if not filtered_docs:
         scored = retrieve_with_scores(query, k=k)
         filtered_docs = [d for d, s in scored if 0.0 <= s <= 1.0 and s >= 0.20] or [d for d, _ in scored]
 
     if not filtered_docs:
-        yield {"citations": []}
-        yield {"token": "I cannot find any documents related to that topic."}
+        yield {"type": "status", "data": "No relevant documents found."}
+        yield {"type": "citations", "data": []}
+        yield {"type": "content", "data": "I cannot find any documents related to that topic."}
         return
 
-    # 2. Yield citations *first*
+    # 1b. Status Update: Found docs
+    yield {"type": "status", "data": f"Found {len(filtered_docs)} references. Synthesizing answer..."}
+
+    # 2. Yield citations *first* (Typed Event)
     citations = [{"source": _doc_meta(d).get("source"), "page": _doc_meta(d).get("page")} for d in filtered_docs[:5]]
-    yield {"citations": citations}
+    yield {"type": "citations", "data": citations}
 
     # 3. Stream the answer
     context = _format_docs(filtered_docs)
     history_str = "\n".join([f"{msg.role}: {msg.content}" for msg in history])
     
-    # --- THIS PROMPT IS UPDATED ---
     prompt = (
-        "You are an AI Legal Assistant for Pakistan law. Answer the user's question using *only* the provided context.\n"
-        "Your answer must be based *solely* on the text in the context. Do not use outside knowledge.\n"
-        "Read the context carefully and synthesize a clear and concise answer.\n"
+        "You are an AI Legal Assistant for Pakistan law. Answer the user's question using the provided context.\n"
+        "IMPORTANT NOTE ON CONTEXT QUALITY:\n"
+        "The provided context contains extracted text from PDFs which has severe formatting issues.\n"
+        "Specifically, many words have spaces inserted inside them (e.g., 'A rticle' instead of 'Article', 'w ith' instead of 'with', 'enem y' instead of 'enemy', 'tim e' for 'time').\n"
+        "You MUST mentally repair these broken words to reconstruct the true meaning. Do NOT ignore text just because it looks broken.\n"
+        "The text IS relevant, assume it is.\n\n"
+        "Your answer must be based *solely* on the information in the context. Do not use outside knowledge.\n"
+        "Read the context carefully, repair the broken words, and synthesize a clear and concise answer.\n"
         "If the context contains relevant information, explain the topic or answer the question based on that text.\n"
-        "If the context is completely irrelevant or does not contain any information to answer the question, *then and only then* reply with:\n"
+        "If, after repairing the text, the context is STILL completely irrelevant or does not contain any information to answer the question, reply with:\n"
         "I cannot find the answer in the provided documents.\n\n"
         "--- CONTEXT ---\n"
         f"{context}\n\n"
         "--- CHAT HISTORY ---\n"
         f"{history_str}\n\n"
-        f"--- QUESTION ---\n{query}\n\n" # This `query` is the condensed & corrected one
+        f"--- QUESTION ---\n{query}\n\n"
         "--- ANSWER ---\n"
     )
-    # --- END OF UPDATE ---
 
     model = _make_model(model_name)
     try:
         resp_stream = model.generate_content(prompt, stream=True)
         for chunk in resp_stream:
-            yield {"token": (getattr(chunk, "text", "") or "")}
+            try:
+                 text_chunk = chunk.text
+            except Exception:
+                 continue
+
+            if text_chunk:
+                yield {"type": "content", "data": text_chunk}
     except Exception as e:
-        yield {"token": f"An error occurred during streaming: {e}"}
+        yield {"type": "error", "data": f"An error occurred during streaming: {e}"}
 
 
 # --- Main Entry Point (Blocking) ---
@@ -372,6 +416,7 @@ def answer_query(
         # Step 2c: Run the RAG pipeline
         return _rag_query(corrected_query, history_list, k, model_name)
 
+
 # --- Main Entry Point (Streaming) ---
 def answer_query_stream(
     query: str, 
@@ -382,20 +427,63 @@ def answer_query_stream(
     
     history_list = history or []
 
+    # Initial Status
+    yield {"type": "status", "data": "Analyzing query..."}
+
     # --- STEP 1: Classify the RAW query first ---
     raw_intent = _classify_intent(query, model_name)
     
     # --- STEP 2: Route based on raw intent ---
     if raw_intent == "GENERAL":
         # It's a greeting, use the fast path.
-        yield {"citations": []}
-        for token in _general_chat_stream(query, history_list, model_name):
-            yield {"token": token}
+        yield {"type": "citations", "data": []}
+        
+        # General chat stream helper needs adjustment or manual iteration here
+        # Re-implementing simplified loop to ensure typed yield
+        formatted_history = []
+        for msg in history_list:
+            role = "model" if msg.role == "assistant" else "user"
+            formatted_history.append({"role": role, "parts": [msg.content]})
+        
+    # --- _general_chat fix ---
+    # model = genai.GenerativeModel(model_name_for_api) # Simplified
+    
+    # --- _general_chat_stream fix ---
+    
+    # --- answer_query_stream (General) fix ---
+        
+        system_prompt = (
+            "You are a helpful and polite AI assistant. You are an expert in Pakistani law, "
+            "but you can also answer general questions and engage in friendly conversation."
+        )
+        
+        model_name_for_api = model_name if model_name.startswith("models/") else f"models/{model_name}"
+        # REMOVED system_instruction argument
+        model = genai.GenerativeModel(model_name_for_api)
+
+        # Prepend system prompt to the query content effectively
+        full_query = f"{system_prompt}\n\n{query}"
+
+        try:
+            chat_session = model.start_chat(history=formatted_history)
+            # Use full_query instead of query
+            resp_stream = chat_session.send_message(full_query, stream=True)
+            for chunk in resp_stream:
+                try:
+                     text_chunk = chunk.text
+                except Exception:
+                     continue
+                
+                if text_chunk:
+                    yield {"type": "content", "data": text_chunk}
+        except Exception as e:
+            yield {"type": "error", "data": str(e)}
     
     else:
         # It's a LEGAL query, run the full RAG pipeline.
         
         # Step 2a: Condense query with history
+        yield {"type": "status", "data": "Clarifying context..."}
         condensed_query = _condense_query_with_history(history_list, query, model_name)
         
         # Step 2b: Correct the condensed query
@@ -418,7 +506,12 @@ def search_docs(query: str, k: int = 8):
     return out
 
 def direct_model_test(model_name: str = DEFAULT_CHAT_MODEL) -> str:
-    return (getattr(_make_model(model_name).generate_content("Reply with a single word: pong"), "text", "") or "").strip()
+    m = _make_model(model_name)
+    try:
+        reply = (getattr(m.generate_content("Reply with a single word: pong"), "text", "") or "").strip()
+    except Exception as e:
+        reply = str(e)
+    return f"Model: {model_name} | Reply: {reply}"
 
 def db_info():
     db = _db()

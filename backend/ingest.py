@@ -59,7 +59,17 @@ def main():
     skipped_empty = 0
 
     for idx, f in enumerate(files, 1):
-        print(f"[{idx}/{len(files)}] Loading: {f.name}")
+        print(f"[{idx}/{len(files)}] Processing: {f.name}")
+        
+        try:
+            # Check if already indexed
+            existing = db.get(where={"source": str(f.resolve())})
+            if existing and existing["ids"]:
+                print(f"   └─ [skip] already indexed: {f.name}")
+                continue
+        except Exception:
+            pass
+
         try:
             docs = _load_one(f)
             if not docs:

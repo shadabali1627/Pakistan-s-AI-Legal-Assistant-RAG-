@@ -1,63 +1,98 @@
 import { Link, useNavigate } from "react-router-dom";
 import { useState } from "react";
 import { useAuth } from "../auth";
+import { GoogleLogin } from '@react-oauth/google';
 
 export default function Login() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const { signin } = useAuth();
+  const { signin, googleLogin } = useAuth();
   const nav = useNavigate();
 
   const onSubmit = async (e) => {
     e.preventDefault();
-    await signin(email, password);
-    nav("/chat");
+    try {
+      await signin(email, password);
+      nav("/chat");
+    } catch (err) {
+      alert("Login failed: " + err.message);
+    }
+  };
+
+  const handleGoogleSuccess = async (credentialResponse) => {
+    try {
+      await googleLogin(credentialResponse.credential);
+      nav("/chat");
+    } catch (e) {
+      alert("Google Login Failed");
+    }
+  };
+
+  const handleGoogleError = () => {
+    alert("Google Login Failed");
   };
 
   return (
-    <div className="auth-wrap">
-      <div className="brand">
-        <div className="logo" style={{ marginBottom: '16px' }}><img src="/logo.svg" alt="Logo" style={{ width: '64px', height: '64px' }} /></div>
-        <h1>AI Legal Assistant</h1>
-        <p>Your intelligent legal companion</p>
+    <div className="auth-container">
+      <div className="auth-header">
+        <div className="brand-logo-placeholder">AI</div>
+        <h1 className="auth-title">AI Legal Assistant</h1>
+        <p className="auth-subtitle">Your intelligent legal companion</p>
       </div>
 
-      <form className="card" onSubmit={onSubmit}>
-        <h2>Sign In</h2>
-        <p className="muted" style={{ marginBottom: '24px' }}>Enter your credentials to access your legal assistant</p>
+      <div className="auth-card">
+        <form onSubmit={onSubmit}>
+          <h2 style={{ fontSize: '1.5rem', fontWeight: '600', marginBottom: '24px', textAlign: 'center', color: 'var(--text-main)' }}>Sign In</h2>
 
-        <label>Email</label>
-        <input
-          placeholder="you@example.com"
-          type="email"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          required
-        />
+          <div className="form-group">
+            <label className="form-label">Email</label>
+            <input
+              className="form-input"
+              placeholder="name@company.com"
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              required
+            />
+          </div>
 
-        <label style={{ marginTop: '16px' }}>Password</label>
-        <input
-          placeholder="••••••••"
-          type="password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          required
-        />
+          <div className="form-group">
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+              <label className="form-label" style={{ marginBottom: 0 }}>Password</label>
+              <Link to="/forgot-password" style={{ fontSize: '0.875rem', fontWeight: '500' }}>Forgot password?</Link>
+            </div>
+            <input
+              className="form-input"
+              placeholder="••••••••"
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+            />
+          </div>
 
-        <div className="muted small" style={{ marginTop: '8px', textAlign: 'right' }}>
-          <a href="#" className="muted">Forgot password?</a>
+          <button className="btn btn-primary" type="submit">Sign In</button>
+        </form>
+
+        <div style={{ display: 'flex', justifyContent: 'center', marginTop: '16px', width: '100%' }}>
+          <GoogleLogin
+            onSuccess={handleGoogleSuccess}
+            onError={handleGoogleError}
+            shape="rectangular"
+            theme="outline"
+            size="large"
+            width="100%"
+          />
         </div>
 
-        <button className="primary" type="submit" style={{ marginTop: '24px' }}>Sign In</button>
-
-        <div className="muted center small" style={{ marginTop: '16px' }}>
-          Don’t have an account? <Link to="/signup">Sign up</Link>
+        <div className="auth-footer">
+          Don't have an account? <Link to="/signup">Sign up</Link>
         </div>
-      </form>
+      </div>
 
-      <p className="tiny center muted" style={{ maxWidth: '400px' }}>
-        Protected by attorney-client privilege guidelines. By signing in, you agree to our Terms of Service and Privacy Policy.
-      </p>
+      <div className="auth-footer" style={{ marginTop: '32px', maxWidth: '400px', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+        <p>Protected by attorney-client privilege guidelines.</p>
+      </div>
     </div>
   );
 }
