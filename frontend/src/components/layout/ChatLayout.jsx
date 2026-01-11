@@ -34,9 +34,15 @@ export default function ChatLayout({
             {/* --- Sidebar --- */}
             <aside
                 className={`
-                    fixed inset-y-0 left-0 z-50 w-72 bg-slate-900 text-white flex flex-col transition-transform duration-300 ease-in-out border-r border-slate-800
-                    ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'}
-                    lg:relative lg:translate-x-0
+                    bg-slate-900 text-white flex flex-col transition-all duration-300 ease-in-out border-r border-slate-800 w-72
+                    ${isSidebarOpen
+                        ? 'relative' // On desktop when open: take up space
+                        : 'fixed inset-y-0 left-0 -translate-x-full lg:w-0 lg:border-0' // When closed: slide out
+                    }
+                    lg:relative lg:transition-[width] lg:duration-300
+                    ${!isSidebarOpen ? 'lg:w-0 lg:overflow-hidden' : ''}
+                    max-lg:fixed max-lg:inset-y-0 max-lg:left-0 max-lg:z-50
+                    ${isSidebarOpen ? 'max-lg:translate-x-0' : 'max-lg:-translate-x-full'}
                 `}
             >
                 {/* Header */}
@@ -158,11 +164,50 @@ export default function ChatLayout({
                 </div>
             </aside>
 
+            {/* --- Left Vertical Strip (when sidebar is closed on desktop) --- */}
+            {!isSidebarOpen && (
+                <aside className="hidden lg:flex flex-col items-center justify-between w-16 bg-slate-900 border-r border-slate-800 py-6">
+                    {/* New Chat Icon */}
+                    <button
+                        onClick={onNewChat}
+                        className="flex items-center justify-center h-10 w-10 rounded-xl bg-blue-600 text-white hover:bg-blue-500 transition-all shadow-lg shadow-blue-900/20 hover:shadow-blue-600/30 active:scale-95"
+                        title="New Conversation"
+                    >
+                        <Plus size={20} />
+                    </button>
+
+                    {/* User Profile Picture */}
+                    <button
+                        onClick={() => setIsLogoutModalOpen(true)}
+                        className="flex h-10 w-10 items-center justify-center rounded-full bg-slate-700 text-slate-300 ring-2 ring-slate-800 overflow-hidden hover:ring-slate-600 transition-all"
+                        title={user?.name || "User Profile"}
+                    >
+                        {user?.picture || user?.photoURL || user?.avatar_url ? (
+                            <img
+                                src={user.picture || user.photoURL || user.avatar_url}
+                                alt={user.name || "User"}
+                                className="w-full h-full object-cover"
+                                referrerPolicy="no-referrer"
+                            />
+                        ) : (
+                            <User size={18} />
+                        )}
+                    </button>
+                </aside>
+            )}
+
             {/* --- Main Content Area --- */}
             <main className="flex flex-1 flex-col h-full min-w-0 bg-white relative">
                 {/* Desktop Header */}
                 <header className="hidden lg:flex h-16 items-center justify-between border-b border-slate-100 bg-white px-6">
                     <div className="flex items-center gap-3">
+                        <button
+                            onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+                            className="p-2 text-slate-500 hover:bg-slate-100 rounded-lg transition-colors"
+                            title={isSidebarOpen ? "Hide Sidebar" : "Show Sidebar"}
+                        >
+                            <Menu size={20} />
+                        </button>
                         <div className="h-8 w-1 bg-blue-600 rounded-full"></div>
                         <h2 className="font-semibold text-slate-800 text-lg">
                             {activeChatId
@@ -180,7 +225,7 @@ export default function ChatLayout({
                                 }`}
                         >
                             <BookOpen size={18} />
-                            <span>{isResourceOpen ? 'Hide Resources' : 'Show Resources'}</span>
+                            <span>{isResourceOpen ? 'Hide Sources' : 'Show Sources'}</span>
                         </button>
                     </div>
                 </header>
@@ -193,7 +238,12 @@ export default function ChatLayout({
                     >
                         <Menu size={24} />
                     </button>
-                    <span className="font-semibold text-slate-900">AI Legal Assistant</span>
+                    <div className="flex items-center gap-2">
+                        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-600 font-bold text-white shadow-lg shadow-blue-500/20">
+                            AI
+                        </div>
+                        <span className="font-semibold text-slate-900">AI Legal Assistant</span>
+                    </div>
                     <button
                         onClick={() => setIsResourceOpen(!isResourceOpen)}
                         className={`p-2 rounded-lg transition-colors ${isResourceOpen ? 'bg-blue-50 text-blue-600' : 'text-slate-500 hover:bg-slate-100 transition-colors'}`}

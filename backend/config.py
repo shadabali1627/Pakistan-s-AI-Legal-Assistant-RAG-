@@ -15,7 +15,8 @@ load_dotenv(dotenv_path=BASE_DIR / ".env", override=False)
 
 # --- Keys & models ---
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
-MODEL_NAME = os.getenv("MODEL_NAME", "gemini-1.5-flash-latest")
+CHAT_MODEL_NAME = os.getenv("CHAT_MODEL_NAME", "gemma-3n-e4b-it")
+MODEL_NAME = CHAT_MODEL_NAME # Backward compatibility alias
 EMBEDDING_MODEL_NAME = os.getenv("EMBEDDING_MODEL_NAME", "models/text-embedding-004")
 
 # --- Paths (absolute) ---

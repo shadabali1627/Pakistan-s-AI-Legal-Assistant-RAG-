@@ -14,7 +14,7 @@ langchain-chroma
 google-genai
 chromadb
 pypdf
-unstructured[doc,docx]
+
 motor
 google-auth
 bcrypt

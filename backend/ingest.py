@@ -8,7 +8,6 @@ from langchain_chroma import Chroma  # <-- UPDATED IMPORT
 from langchain_core.documents import Document
 from langchain_community.document_loaders import (
     PyPDFLoader,
-    UnstructuredWordDocumentLoader,
 )
 
 from backend.utils.embedding_utils import embeddings_model
@@ -17,8 +16,8 @@ from backend.config import DATA_PATH, CHROMA_PATH, COLLECTION_NAME
 
 
 def _iter_files(root: Path) -> List[Path]:
-    # Only the types our loader supports (pdf, docx, doc).
-    pats = ["**/*.pdf", "**/*.docx", "**/*.doc"]
+    # Only the types our loader supports (pdf).
+    pats = ["**/*.pdf"]
     files: List[Path] = []
     for pat in pats:
         files.extend(root.glob(pat))
@@ -29,8 +28,6 @@ def _load_one(path: Path) -> List[Document]:
     # Load exactly one file with the same loaders used in file_loader.py.
     if path.suffix.lower() == ".pdf":
         return PyPDFLoader(str(path)).load()
-    elif path.suffix.lower() in (".docx", ".doc"):
-        return UnstructuredWordDocumentLoader(str(path)).load()
     else:
         return []
 

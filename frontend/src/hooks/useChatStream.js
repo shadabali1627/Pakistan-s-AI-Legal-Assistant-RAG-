@@ -52,6 +52,7 @@ export function useChatStream() {
                     acc += `\n\n**Error:** ${event.data}`;
                 }
 
+                // Update state immediately - React will batch automatically
                 setMessages(prev => {
                     const newMsgs = [...prev];
                     const lastIdx = newMsgs.length - 1;

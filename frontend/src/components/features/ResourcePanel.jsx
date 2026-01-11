@@ -14,7 +14,7 @@ export default function ResourcePanel({ isOpen, citations, onClose, isMobile }) 
             <div className="flex items-center justify-between p-4 border-b border-slate-100 bg-slate-50/50">
                 <div className="flex items-center gap-2 text-slate-700 font-semibold">
                     <BookOpen size={18} className="text-blue-600" />
-                    <span>Legal Resources</span>
+                    <span>Sources</span>
                 </div>
                 {isMobile && (
                     <button
@@ -41,13 +41,13 @@ export default function ResourcePanel({ isOpen, citations, onClose, isMobile }) 
                                 </div>
                                 <div>
                                     <h4 className="text-sm font-semibold text-slate-800 leading-snug mb-1 group-hover:text-blue-700">
-                                        {cite.title || "Legal Document"}
+                                        {cite.source ? cite.source.split(/[\\\/]/).pop().replace('.pdf', '') : "Legal Document"}
                                     </h4>
-                                    <p className="text-xs text-slate-500 font-medium">
-                                        {cite.source ? cite.source.split(/[\\/]/).pop() : "Unknown Source"}
-                                        {cite.page && <span className="mx-1">•</span>}
-                                        {cite.page && `Page ${cite.page}`}
-                                    </p>
+                                    {cite.page && (
+                                        <p className="text-xs text-slate-500 font-medium">
+                                            Page {cite.page}
+                                        </p>
+                                    )}
                                     {cite.score && (
                                         <div className="mt-2 text-[10px] font-semibold uppercase tracking-wider text-emerald-600 bg-emerald-50 inline-block px-1.5 py-0.5 rounded border border-emerald-100">
                                             {Math.round(cite.score * 100)}% Match

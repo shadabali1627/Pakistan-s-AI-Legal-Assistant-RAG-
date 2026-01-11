@@ -62,10 +62,9 @@ export default function Chat() {
     const checkScreenSize = () => {
       if (window.innerWidth >= 1024) {
         setIsResourceOpen(true);
-        setIsSidebarOpen(true);
       } else {
         setIsResourceOpen(false);
-        setIsSidebarOpen(false);
+        setIsSidebarOpen(false); // Close sidebar on mobile only
       }
     };
 
@@ -85,15 +84,20 @@ export default function Chat() {
       const fetchHistory = async () => {
         setHistoryLoading(true);
         try {
-          const res = await api.get(`/chat/history?user_email=${user.email}`);
+          console.log("Fetching chat history for user:", user.email);
+          const res = await api.get(`/chat/history?user_email=${encodeURIComponent(user.email)}`);
+          console.log("Chat history response:", res.data);
           setChatHistoryList(res.data);
         } catch (e) {
           console.error("Failed to load history", e);
+          console.error("Error details:", e.response?.data);
         } finally {
           setHistoryLoading(false);
         }
       };
       fetchHistory();
+    } else {
+      console.log("No user email found, user object:", user);
     }
   }, [user]);
 
@@ -216,13 +220,13 @@ export default function Chat() {
         <div className="flex-1 flex flex-col h-full relative">
 
           <div
-            className="flex-1 overflow-y-auto px-4 sm:px-6 custom-scrollbar scroll-smooth"
+            className="flex-1 overflow-y-auto px-3 sm:px-4 lg:px-6 custom-scrollbar scroll-smooth"
             ref={scrollContainerRef}
             onScroll={handleScroll}
           >
-            <div className="max-w-4xl mx-auto pt-8 pb-10 min-h-full flex flex-col justify-start">
+            <div className="max-w-4xl mx-auto pt-6 sm:pt-8 pb-10 min-h-full flex flex-col justify-start">
               {messages.length === 0 && (
-                <div className="flex-1 flex flex-col justify-center items-center text-center -mt-20">
+                <div className="flex-1 flex flex-col justify-center items-center text-center mt-4 lg:-mt-20">
 
                   {/* Background Accents (Subtle Glow) */}
                   <div className="absolute inset-0 pointer-events-none overflow-hidden">
@@ -230,12 +234,12 @@ export default function Chat() {
                   </div>
 
                   {/* Hero Icon */}
-                  <div className="relative z-10 mb-8">
-                    <div className="w-20 h-20 mx-auto bg-gradient-to-br from-white to-blue-50 rounded-2xl shadow-xl shadow-blue-100/50 flex items-center justify-center ring-1 ring-blue-100/50 mb-6">
-                      <Scale className="w-10 h-10 text-blue-600" strokeWidth={1.5} />
+                  <div className="relative z-10 mb-6 sm:mb-8">
+                    <div className="w-16 h-16 sm:w-20 sm:h-20 mx-auto bg-gradient-to-br from-white to-blue-50 rounded-2xl shadow-xl shadow-blue-100/50 flex items-center justify-center ring-1 ring-blue-100/50 mb-4 sm:mb-6">
+                      <Scale className="w-8 h-8 sm:w-10 sm:h-10 text-blue-600" strokeWidth={1.5} />
                     </div>
                     {/* Main Title */}
-                    <h1 className="text-4xl sm:text-5xl font-bold text-slate-900 mb-6 tracking-tight">
+                    <h1 className="text-3xl sm:text-4xl lg:text-5xl font-bold text-slate-900 mb-4 sm:mb-6 tracking-tight px-4">
                       <span className="bg-clip-text text-transparent bg-gradient-to-r from-slate-900 via-blue-800 to-slate-900">Pakistan AI</span>
                       <br />
                       <span className="text-blue-600 relative inline-block">
@@ -244,7 +248,7 @@ export default function Chat() {
                       </span>
                     </h1>
                     {/* Subtitle */}
-                    <p className="text-slate-500 max-w-2xl mx-auto mb-16 text-lg leading-relaxed font-light">
+                    <p className="text-slate-500 max-w-2xl mx-auto mb-12 sm:mb-16 text-base sm:text-lg leading-relaxed font-light px-4">
                       Your intelligent companion for navigating <span className="text-slate-700 font-medium">Pakistani Laws</span>, analyzing <span className="text-slate-700 font-medium">Case Precedents</span>, and generating <span className="text-slate-700 font-medium">Legal Insights</span>.
                     </p>
                   </div>

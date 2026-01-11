@@ -12,7 +12,7 @@ from backend.schemas import ChatMessage
 
 client = genai.Client(api_key=GOOGLE_API_KEY)
 
-DEFAULT_CHAT_MODEL = os.getenv("CHAT_MODEL_NAME", "gemma-2-9b-it")
+DEFAULT_CHAT_MODEL = os.getenv("CHAT_MODEL_NAME", "gemma-3n-e4b-it")
 
 # --- Helper Functions (Models, DB, Formatting) ---
 
@@ -241,20 +241,30 @@ def _general_chat_stream(
             model=model_name,
             history=formatted_history
         )
-        # Using generate_content_stream if chat.send_message_stream isn't available
-        # But commonly client.models.generate_content_stream is used.
-        # However, for chat, we typically use the chat object.
-        # google-genai SDK 0.x/1.x patterns vary.
-        # Attempting chat.send_message(..., stream=True) equivalent logic.
-        # Actually client.chats.create returns a session.
-        # Let's try to stream message.
-        for chunk in chat.send_message_stream(full_query):
+        
+        # Buffer for smooth chunking
+        text_buffer = ""
+        CHUNK_SIZE = 10
+        
+        # Send message with proper content format
+        for chunk in chat.send_message_stream(types.Content(parts=[types.Part(text=full_query)])):
              try:
                  text_chunk = chunk.text
              except Exception:
                  continue
+             
              if text_chunk:
-                 yield text_chunk
+                 text_buffer += text_chunk
+                 
+                 # Emit in smaller chunks
+                 while len(text_buffer) >= CHUNK_SIZE:
+                     yield text_buffer[:CHUNK_SIZE]
+                     text_buffer = text_buffer[CHUNK_SIZE:]
+        
+        # Emit remaining
+        if text_buffer:
+            yield text_buffer
+            
     except Exception as e:
         yield f"An error occurred while processing your request: {e}"
 
@@ -303,20 +313,20 @@ def _rag_query(
     prompt = (
         "You are an AI Legal Assistant for Pakistan law. Answer the user's question using the provided context.\n"
         "IMPORTANT NOTE ON CONTEXT QUALITY:\n"
-        "The provided context contains extracted text from PDFs which has severe formatting issues.\n"
-        "Specifically, many words have spaces inserted inside them (e.g., 'A rticle' instead of 'Article', 'w ith' instead of 'with', 'enem y' instead of 'enemy', 'tim e' for 'time').\n"
-        "You MUST mentally repair these broken words to reconstruct the true meaning. Do NOT ignore text just because it looks broken.\n"
-        "The text IS relevant, assume it is.\n\n"
-        "Your answer must be based *solely* on the information in the context. Do not use outside knowledge.\n"
-        "Read the context carefully, repair the broken words, and synthesize a clear and concise answer.\n"
-        "If the context contains relevant information, explain the topic or answer the question based on that text.\n"
-        "If, after repairing the text, the context is STILL completely irrelevant or does not contain any information to answer the question, reply with:\n"
-        "I cannot find the answer in the provided documents.\n\n"
+        "The provided context contains extracted text from PDFs (e.g., Constitution, Acts).\n"
+        "1.  **Text Repair**: Some words may be broken (e.g., 'A rticle' -> 'Article'). You MUST mentally repair them.\n"
+        "2.  **Synthesis**: The context may not have the *exact* headers you expect. You must read the *content* to find the answer.\n"
+        "3.  **Relevance**: If the context talks about the general topic (e.g., 'Human Rights'), use it to answer, even if it doesn't match the query word-for-word.\n\n"
+        "**INSTRUCTIONS:**\n"
+        "- Answer the question comprehensively using the information found in the context.\n"
+        "- If the context mentions relevant laws/articles, cite them.\n"
+        "- Do NOT be overly strict. If the documents provide a partial answer or general principles, use them.\n"
+        "- Only say you cannot find the answer if the context is completely unrelated (e.g., context is about 'Banking' but query is about 'Murder').\n\n"
         "--- CONTEXT ---\n"
         f"{context}\n\n"
         "--- CHAT HISTORY ---\n"
         f"{history_str}\n\n"
-        f"--- QUESTION ---\n{query}\n\n" # This `query` is the condensed & corrected one
+        f"--- QUESTION ---\n{query}\n\n"
         "--- ANSWER ---\n"
     )
 
@@ -375,15 +385,15 @@ def _rag_query_stream(
     prompt = (
         "You are an AI Legal Assistant for Pakistan law. Answer the user's question using the provided context.\n"
         "IMPORTANT NOTE ON CONTEXT QUALITY:\n"
-        "The provided context contains extracted text from PDFs which has severe formatting issues.\n"
-        "Specifically, many words have spaces inserted inside them (e.g., 'A rticle' instead of 'Article', 'w ith' instead of 'with', 'enem y' instead of 'enemy', 'tim e' for 'time').\n"
-        "You MUST mentally repair these broken words to reconstruct the true meaning. Do NOT ignore text just because it looks broken.\n"
-        "The text IS relevant, assume it is.\n\n"
-        "Your answer must be based *solely* on the information in the context. Do not use outside knowledge.\n"
-        "Read the context carefully, repair the broken words, and synthesize a clear and concise answer.\n"
-        "If the context contains relevant information, explain the topic or answer the question based on that text.\n"
-        "If, after repairing the text, the context is STILL completely irrelevant or does not contain any information to answer the question, reply with:\n"
-        "I cannot find the answer in the provided documents.\n\n"
+        "The provided context contains extracted text from PDFs (e.g., Constitution, Acts).\n"
+        "1.  **Text Repair**: Some words may be broken (e.g., 'A rticle' -> 'Article'). You MUST mentally repair them.\n"
+        "2.  **Synthesis**: The context may not have the *exact* headers you expect. You must read the *content* to find the answer.\n"
+        "3.  **Relevance**: If the context talks about the general topic (e.g., 'Human Rights'), use it to answer, even if it doesn't match the query word-for-word.\n\n"
+        "**INSTRUCTIONS:**\n"
+        "- Answer the question comprehensively using the information found in the context.\n"
+        "- If the context mentions relevant laws/articles, cite them.\n"
+        "- Do NOT be overly strict. If the documents provide a partial answer or general principles, use them.\n"
+        "- Only say you cannot find the answer if the context is completely unrelated (e.g., context is about 'Banking' but query is about 'Murder').\n\n"
         "--- CONTEXT ---\n"
         f"{context}\n\n"
         "--- CHAT HISTORY ---\n"
@@ -395,18 +405,31 @@ def _rag_query_stream(
 
 
     try:
-        # Stream response
+        # Stream response with character-level granularity for smooth display
+        text_buffer = ""
+        CHUNK_SIZE = 10  # Emit every 10 characters for smooth streaming
+        
         for chunk in client.models.generate_content_stream(
             model=model_name,
             contents=prompt
         ):
             try:
-                 text_chunk = chunk.text
+                text_chunk = chunk.text
             except Exception:
-                 continue
+                continue
 
             if text_chunk:
-                yield {"type": "content", "data": text_chunk}
+                text_buffer += text_chunk
+                
+                # Emit in smaller chunks for smoother frontend display
+                while len(text_buffer) >= CHUNK_SIZE:
+                    yield {"type": "content", "data": text_buffer[:CHUNK_SIZE]}
+                    text_buffer = text_buffer[CHUNK_SIZE:]
+        
+        # Emit any remaining buffered text
+        if text_buffer:
+            yield {"type": "content", "data": text_buffer}
+            
     except Exception as e:
         yield {"type": "error", "data": f"An error occurred during streaming: {e}"}
 
@@ -469,7 +492,7 @@ def answer_query_stream(
         formatted_history = []
         for msg in history_list:
             role = "model" if msg.role == "assistant" else "user"
-            formatted_history.append({"role": role, "parts": [msg.content]})
+            formatted_history.append(types.Content(role=role, parts=[types.Part(text=msg.content)]))
         
     # --- _general_chat fix ---
     # model = genai.GenerativeModel(model_name_for_api) # Simplified
@@ -491,7 +514,11 @@ def answer_query_stream(
                 model=model_name,
                 history=formatted_history
             )
-            # Use full_query instead of query
+            
+            # Buffer for smooth chunking
+            text_buffer = ""
+            CHUNK_SIZE = 10
+            
             for chunk in chat.send_message_stream(full_query):
                 try:
                      text_chunk = chunk.text
@@ -499,7 +526,17 @@ def answer_query_stream(
                      continue
                 
                 if text_chunk:
-                    yield {"type": "content", "data": text_chunk}
+                    text_buffer += text_chunk
+                    
+                    # Emit in smaller chunks for smoother display
+                    while len(text_buffer) >= CHUNK_SIZE:
+                        yield {"type": "content", "data": text_buffer[:CHUNK_SIZE]}
+                        text_buffer = text_buffer[CHUNK_SIZE:]
+            
+            # Emit remaining
+            if text_buffer:
+                yield {"type": "content", "data": text_buffer}
+                
         except Exception as e:
             yield {"type": "error", "data": str(e)}
     

@@ -242,7 +242,15 @@ async def chat_stream(req: ChatRequest):
             yield f'data: {json.dumps(error_event)}\n\n'
             yield "data: [DONE]\n\n"
 
-    return StreamingResponse(event_stream(), media_type="text/event-stream; charset=utf-8")
+    return StreamingResponse(
+        event_stream(), 
+        media_type="text/event-stream; charset=utf-8",
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
+        }
+    )
 
 
 @router.get("/chat/history", response_class=JSONResponse)

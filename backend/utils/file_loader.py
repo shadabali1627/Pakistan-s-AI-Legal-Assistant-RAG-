@@ -2,7 +2,7 @@ from pathlib import Path
 from typing import List
 from langchain_core.documents import Document
 from langchain_community.document_loaders import (
-    DirectoryLoader, PyPDFLoader, UnstructuredWordDocumentLoader
+    DirectoryLoader, PyPDFLoader
 )
 
 def load_all_documents(directory_path: str) -> List[Document]:
@@ -20,18 +20,5 @@ def load_all_documents(directory_path: str) -> List[Document]:
             max_concurrency=4,
         ).load()
     )
-
-    # DOCX/DOC
-    for pat in ("**/*.docx", "**/*.doc"):
-        docs.extend(
-            DirectoryLoader(
-                path=str(path),
-                glob=pat,
-                loader_cls=UnstructuredWordDocumentLoader,
-                show_progress=True,
-                use_multithreading=True,
-                max_concurrency=4,
-            ).load()
-        )
 
     return docs

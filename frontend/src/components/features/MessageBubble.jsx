@@ -39,8 +39,10 @@ const CodeBlock = ({ inline, className, children, ...props }) => {
 };
 
 // Hook for smooth typewriter effect
-const useTypewriter = (text, speed = 10, isStreaming = false) => {
+const useTypewriter = (text, baseSpeed = 15, isStreaming = false) => {
     const [currentIndex, setCurrentIndex] = useState(0);
+    const rafIdRef = useRef(null);
+    const lastUpdateRef = useRef(Date.now());
 
     useEffect(() => {
         // If it's a fresh load (history) and not actively streaming, show immediately.
@@ -53,15 +55,31 @@ const useTypewriter = (text, speed = 10, isStreaming = false) => {
 
         // If we have text to type
         if (currentIndex < text.length) {
-            const timeoutId = setTimeout(() => {
-                setCurrentIndex((prev) => prev + 1);
-            }, speed);
+            // Adaptive speed based on how fast text is coming in
+            const timeSinceLastUpdate = Date.now() - lastUpdateRef.current;
+            const remainingChars = text.length - currentIndex;
 
-            return () => clearTimeout(timeoutId);
+            // If large chunk arrived recently, speed up typewriter
+            const speed = remainingChars > 50 ? Math.max(baseSpeed / 2, 8) : baseSpeed;
+
+            rafIdRef.current = requestAnimationFrame(() => {
+                const timeoutId = setTimeout(() => {
+                    setCurrentIndex((prev) => Math.min(prev + 1, text.length));
+                    lastUpdateRef.current = Date.now();
+                }, speed);
+
+                return () => clearTimeout(timeoutId);
+            });
+
+            return () => {
+                if (rafIdRef.current) {
+                    cancelAnimationFrame(rafIdRef.current);
+                }
+            };
         }
-    }, [text, speed, isStreaming, currentIndex]);
+    }, [text, baseSpeed, isStreaming, currentIndex]);
 
-    // Reset if text abruptly changes to something shorter (e.g. should rarely happen in stream, but good for safety)
+    // Reset if text abruptly changes to something shorter
     useEffect(() => {
         if (text.length < currentIndex) {
             setCurrentIndex(text.length);
@@ -76,12 +94,13 @@ export default function MessageBubble({ role, content, status, citations, onCita
     const isSystem = role === 'system';
     const [isSpeaking, setIsSpeaking] = useState(false);
 
-    // Use typewriter only for AI responses that are currently streaming
+    // Use typewriter only for loading historical messages, NOT for live streaming
+    // This gives instant, professional streaming response
     const safeContent = content || "";
-    const displayedContent = useTypewriter(safeContent, 5, isStreaming && !isUser);
+    const displayedContent = useTypewriter(safeContent, 15, false); // Always false for instant display during streaming
 
-    // Determine if we are still "typing" (content still loading or typewriter catching up)
-    const isTyping = isStreaming && (!isUser) && (displayedContent.length < safeContent.length || status);
+    // Show typing indicator only when we have a status message and no content yet
+    const isTyping = isStreaming && (!isUser) && safeContent.length === 0 && status;
 
     // Stop speaking when component unmounts
     useEffect(() => {
@@ -115,7 +134,7 @@ export default function MessageBubble({ role, content, status, citations, onCita
 
     return (
         <div className={clsx("flex w-full mb-6", isUser ? "justify-end" : "justify-start")}>
-            <div className={clsx("flex max-w-[95%] md:max-w-[85%] lg:max-w-[75%]", isUser ? "flex-row-reverse" : "flex-row")}>
+            <div className={clsx("flex max-w-[98%] md:max-w-[90%] lg:max-w-[85%]", isUser ? "flex-row-reverse" : "flex-row")}>
 
                 {/* Avatar */}
                 <div className={clsx("flex-shrink-0 w-8 h-8 md:w-10 md:h-10 rounded-full flex items-center justify-center mt-1 overflow-hidden shadow-sm",
@@ -166,8 +185,8 @@ export default function MessageBubble({ role, content, status, citations, onCita
                                 {displayedContent}
                             </ReactMarkdown>
 
-                            {/* Cursor */}
-                            {isTyping && (
+                            {/* Cursor - show during active streaming */}
+                            {isStreaming && !isUser && safeContent.length > 0 && (
                                 <span className="inline-block w-2 h-5 ml-1 align-sub bg-blue-500 rounded-sm animate-pulse" />
                             )}
                         </div>
@@ -188,8 +207,8 @@ export default function MessageBubble({ role, content, status, citations, onCita
                             </div>
                         )}
 
-                        {/* Actions Footer */}
-                        {!isUser && !isTyping && (
+                        {/* Actions Footer - show only when streaming is complete */}
+                        {!isUser && !isStreaming && (
                             <div className="mt-3 flex items-center justify-end gap-2 pt-2 border-t border-slate-50 border-opacity-50">
                                 <button
                                     onClick={handleSpeak}
