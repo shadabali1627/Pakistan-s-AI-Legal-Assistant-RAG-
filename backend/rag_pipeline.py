@@ -1,6 +1,7 @@
 from typing import Iterable, List, Tuple, Dict, Any, Iterator, Optional
 import os
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 
 from langchain_chroma import Chroma
 from langchain_core.documents import Document
@@ -9,15 +10,19 @@ from backend.config import CHROMA_PATH, GOOGLE_API_KEY, COLLECTION_NAME
 from backend.utils.embedding_utils import embeddings_model
 from backend.schemas import ChatMessage
 
-genai.configure(api_key=GOOGLE_API_KEY)
+client = genai.Client(api_key=GOOGLE_API_KEY)
 
 DEFAULT_CHAT_MODEL = os.getenv("CHAT_MODEL_NAME", "gemma-2-9b-it")
 
 # --- Helper Functions (Models, DB, Formatting) ---
 
-def _make_model(model_name: str) -> genai.GenerativeModel:
-    name = model_name if model_name.startswith("models/") else f"models/{model_name}"
-    return genai.GenerativeModel(name)
+# --- Helper Functions (Models, DB, Formatting) ---
+
+def _get_model_name(model_name: str) -> str:
+    # Ensure no 'models/' prefix for new SDK if strict, but usually it handles it.
+    # The warning msg says switch to google.genai
+    # We will just pass the model name string.
+    return model_name
 
 def _db() -> Chroma:
     return Chroma(
@@ -43,6 +48,8 @@ def _doc_meta(d: Document) -> Dict[str, Any]:
 
 # --- Query Condensing Function ---
 
+# --- Query Condensing Function ---
+
 def _condense_query_with_history(
     history: List[ChatMessage], 
     query: str, 
@@ -54,8 +61,6 @@ def _condense_query_with_history(
     if not history:
         return query  # No history, no condensing needed
 
-    model = _make_model(model_name)
-    
     # Format history for the prompt
     history_str = "\n".join([f"{msg.role}: {msg.content}" for msg in history])
     
@@ -70,7 +75,10 @@ def _condense_query_with_history(
     )
     
     try:
-        resp = model.generate_content(prompt)
+        resp = client.models.generate_content(
+            model=model_name,
+            contents=prompt
+        )
         condensed = (getattr(resp, "text", "") or "").strip()
         return condensed if condensed else query
     except Exception:
@@ -78,12 +86,12 @@ def _condense_query_with_history(
 
 # --- Query Correction (Handles Typos) ---
 
+# --- Query Correction (Handles Typos) ---
+
 def _correct_query(query: str, model_name: str) -> str:
     """
     Corrects spelling, typos, and abbreviations in the user's query.
     """
-    model = _make_model(model_name)
-    
     prompt = (
         "You are a query correction assistant. Your task is to fix spelling errors, typos, and expand common abbreviations in the user's question, especially those related to Pakistani law. Respond *only* with the corrected question.\n"
         "If the query is a simple greeting, or seems correct, return it unchanged.\n\n"
@@ -100,13 +108,18 @@ def _correct_query(query: str, model_name: str) -> str:
     )
     
     try:
-        resp = model.generate_content(prompt)
+        resp = client.models.generate_content(
+            model=model_name,
+            contents=prompt
+        )
         corrected = (getattr(resp, "text", "") or "").strip()
         if not corrected:
             return query # Return original on empty response
         return corrected
     except Exception:
         return query # Return original on any error
+
+# --- Intent Classification ---
 
 # --- Intent Classification ---
 
@@ -120,8 +133,6 @@ def _classify_intent(query: str, model_name: str) -> str:
     if any(k in query.lower() for k in obvious_keywords):
         return "LEGAL"
 
-    model = _make_model(model_name)
-    
     prompt = (
         "You are an intent classifier. Your job is to determine if the user's question is about Pakistani law, legal concepts, human rights, or government procedures.\n"
         "Respond with only a single word: 'LEGAL' or 'GENERAL'.\n\n"
@@ -148,7 +159,10 @@ def _classify_intent(query: str, model_name: str) -> str:
     )
     
     try:
-        resp = model.generate_content(prompt)
+        resp = client.models.generate_content(
+            model=model_name,
+            contents=prompt
+        )
         text_resp = (getattr(resp, "text", "") or "").strip().upper()
         if text_resp == "LEGAL":
             return "LEGAL"
@@ -158,6 +172,8 @@ def _classify_intent(query: str, model_name: str) -> str:
             return "LEGAL" # Default to LEGAL
     except Exception:
         return "LEGAL" # Default to LEGAL on error
+
+# --- General Chat Function (Blocking) ---
 
 # --- General Chat Function (Blocking) ---
 
@@ -174,29 +190,27 @@ def _general_chat(
     formatted_history = []
     for msg in history:
         role = "model" if msg.role == "assistant" else "user"
-        formatted_history.append({"role": role, "parts": [msg.content]})
+        formatted_history.append(types.Content(role=role, parts=[types.Part(text=msg.content)]))
     
     system_prompt = (
         "You are a helpful and polite AI assistant. You are an expert in Pakistani law, "
         "but you can also answer general questions and engage in friendly conversation."
     )
     
-    # Handle 'models/' prefix for genai GenerativeModel
-    # Handle 'models/' prefix for genai GenerativeModel
-    model_name_for_api = model_name if model_name.startswith("models/") else f"models/{model_name}"
-
-    # REMOVED system_instruction
-    model = genai.GenerativeModel(model_name_for_api)
-    
     full_query = f"{system_prompt}\n\n{query}"
     
     try:
-        chat_session = model.start_chat(history=formatted_history)
-        resp = chat_session.send_message(full_query)
+        chat = client.chats.create(
+            model=model_name,
+            history=formatted_history
+        )
+        resp = chat.send_message(full_query)
         answer = (getattr(resp, "text", "") or "").strip() or "I'm not sure how to respond to that."
         return {"answer": answer, "citations": []}
     except Exception as e:
         return {"answer": f"An error occurred while processing your request: {e}", "citations": []}
+
+# --- General Chat Function (Streaming) ---
 
 # --- General Chat Function (Streaming) ---
 
@@ -213,31 +227,34 @@ def _general_chat_stream(
     formatted_history = []
     for msg in history:
         role = "model" if msg.role == "assistant" else "user"
-        formatted_history.append({"role": role, "parts": [msg.content]})
+        formatted_history.append(types.Content(role=role, parts=[types.Part(text=msg.content)]))
     
     system_prompt = (
         "You are a helpful and polite AI assistant. You are an expert in Pakistani law, "
         "but you can also answer general questions and engage in friendly conversation."
     )
     
-    # Handle 'models/' prefix for genai GenerativeModel
-    model_name_for_api = model_name if model_name.startswith("models/") else f"models/{model_name}"
-
-    # REMOVED system_instruction
-    model = genai.GenerativeModel(model_name_for_api)
-
     full_query = f"{system_prompt}\n\n{query}"
 
     try:
-        chat_session = model.start_chat(history=formatted_history)
-        resp_stream = chat_session.send_message(full_query, stream=True)
-        for chunk in resp_stream:
-            try:
+        chat = client.chats.create(
+            model=model_name,
+            history=formatted_history
+        )
+        # Using generate_content_stream if chat.send_message_stream isn't available
+        # But commonly client.models.generate_content_stream is used.
+        # However, for chat, we typically use the chat object.
+        # google-genai SDK 0.x/1.x patterns vary.
+        # Attempting chat.send_message(..., stream=True) equivalent logic.
+        # Actually client.chats.create returns a session.
+        # Let's try to stream message.
+        for chunk in chat.send_message_stream(full_query):
+             try:
                  text_chunk = chunk.text
-            except Exception:
+             except Exception:
                  continue
-            if text_chunk:
-                yield text_chunk
+             if text_chunk:
+                 yield text_chunk
     except Exception as e:
         yield f"An error occurred while processing your request: {e}"
 
@@ -302,11 +319,16 @@ def _rag_query(
         f"--- QUESTION ---\n{query}\n\n" # This `query` is the condensed & corrected one
         "--- ANSWER ---\n"
     )
-    # --- END OF UPDATE ---
 
-    model = _make_model(model_name)
-    resp = model.generate_content(prompt)
-    answer = (getattr(resp, "text", "") or "").strip() or "I cannot find the answer in the provided documents."
+    try:
+        resp = client.models.generate_content(
+            model=model_name,
+            contents=prompt
+        )
+        answer = (getattr(resp, "text", "") or "").strip() or "I cannot find the answer in the provided documents."
+    except Exception as e:
+        answer = f"Error generating answer: {e}"
+
     citations = [{"source": _doc_meta(d).get("source"), "page": _doc_meta(d).get("page")} for d in filtered_docs[:5]]
     return {"answer": answer, "citations": citations}
 
@@ -370,10 +392,14 @@ def _rag_query_stream(
         "--- ANSWER ---\n"
     )
 
-    model = _make_model(model_name)
+
+
     try:
-        resp_stream = model.generate_content(prompt, stream=True)
-        for chunk in resp_stream:
+        # Stream response
+        for chunk in client.models.generate_content_stream(
+            model=model_name,
+            contents=prompt
+        ):
             try:
                  text_chunk = chunk.text
             except Exception:
@@ -457,18 +483,16 @@ def answer_query_stream(
             "but you can also answer general questions and engage in friendly conversation."
         )
         
-        model_name_for_api = model_name if model_name.startswith("models/") else f"models/{model_name}"
-        # REMOVED system_instruction argument
-        model = genai.GenerativeModel(model_name_for_api)
-
         # Prepend system prompt to the query content effectively
         full_query = f"{system_prompt}\n\n{query}"
 
         try:
-            chat_session = model.start_chat(history=formatted_history)
+            chat = client.chats.create(
+                model=model_name,
+                history=formatted_history
+            )
             # Use full_query instead of query
-            resp_stream = chat_session.send_message(full_query, stream=True)
-            for chunk in resp_stream:
+            for chunk in chat.send_message_stream(full_query):
                 try:
                      text_chunk = chunk.text
                 except Exception:
@@ -506,9 +530,12 @@ def search_docs(query: str, k: int = 8):
     return out
 
 def direct_model_test(model_name: str = DEFAULT_CHAT_MODEL) -> str:
-    m = _make_model(model_name)
     try:
-        reply = (getattr(m.generate_content("Reply with a single word: pong"), "text", "") or "").strip()
+        resp = client.models.generate_content(
+            model=model_name, 
+            contents="Reply with a single word: pong"
+        )
+        reply = (getattr(resp, "text", "") or "").strip()
     except Exception as e:
         reply = str(e)
     return f"Model: {model_name} | Reply: {reply}"

@@ -1,325 +1,388 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
-import { useAuth } from "../auth";
-import { streamAnswer } from "../api";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
-import {
-  Send, User, Bot, Menu, Plus, MessageSquare, StopCircle,
-  Mic, Paperclip, FileText, ChevronRight, Settings, LogOut
-} from "lucide-react";
-
-// --- Components ---
-
-function ResourcePanel({ isOpen, citations }) {
-  return (
-    <div className={`resource-panel ${isOpen ? "" : "closed"}`}>
-      <div className="resource-title">Legal Resources & Citations</div>
-      {citations.length > 0 ? (
-        citations.map((cite, idx) => (
-          <div key={idx} className="citation-card" title={cite.text || "View Source"}>
-            <div style={{ fontWeight: 600, color: '#1E40AF', marginBottom: '4px' }}>
-              {cite.title || "Legal Document"}
-            </div>
-            <div style={{ fontSize: '0.8rem', color: '#64748B' }}>
-              {cite.source ? cite.source.split(/[\\/]/).pop() : "Unknown Source"} • Page {cite.page || "1"}
-            </div>
-            {cite.score && (
-              <div style={{ fontSize: '0.75rem', color: '#059669', marginTop: '6px', fontWeight: 500 }}>
-                Match Confidence: {Math.round(cite.score * 100)}%
-              </div>
-            )}
-          </div>
-        ))
-      ) : (
-        <div style={{ color: '#94A3B8', fontSize: '0.9rem', fontStyle: 'italic', textAlign: 'center', marginTop: '40px' }}>
-          Relevant case law, statutes, and citations will appear here after your query.
-        </div>
-      )}
-    </div>
-  );
-}
-
-function Bubble({ role, content, status, isStreaming }) {
-  const isUser = role === "user";
-  const hasContent = (content || "").trim().length > 0;
-
-  return (
-    <div className={`msg-row`}>
-      <div className={`msg-container ${isUser ? "me" : ""}`}>
-        {!isUser && (
-          <div className="avatar">
-            <Bot size={20} />
-          </div>
-        )}
-
-        <div className={`bubble ${isUser ? "user" : "assistant"}`}>
-          {/* Status for AI (Thinking/Searching) */}
-          {!isUser && status && !hasContent && (
-            <div className="status-indicator">
-              <div className="status-dot"></div>
-              <span className="status-text">{status}</span>
-            </div>
-          )}
-
-          {isUser ? (
-            <div>{content}</div>
-          ) : (
-            <div className="markdown-content">
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                {content}
-              </ReactMarkdown>
-              {isStreaming && <span className="cursor-blink" />}
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-const WELCOME_MESSAGE = {
-  role: "assistant",
-  text: "Salam! I am your advanced AI Legal Assistant. I can help you research Pakistani case law, drafting legal documents, and understanding statutes. How can I assist you today?",
-  citations: [],
-};
-
-function createNewChat() {
-  return {
-    id: crypto.randomUUID(),
-    title: "New Legal Conversation",
-    messages: [WELCOME_MESSAGE],
-  };
-}
+import { useEffect, useState, useMemo, useRef } from "react";
+import ChatLayout from "../components/layout/ChatLayout";
+import Modal from "../components/ui/Modal";
+import MessageBubble from "../components/features/MessageBubble";
+import ChatInput from "../components/features/ChatInput";
+import ResourcePanel from "../components/features/ResourcePanel";
+import { useChatStream } from "../hooks/useChatStream";
+import { useAuth } from "../hooks/useAuth";
+import { FileText, BookOpen, Scale, Search } from 'lucide-react';
+import { api } from "../services/api";
+import clsx from 'clsx';
 
 export default function Chat() {
-  const { user, signout } = useAuth();
-  const nav = useNavigate();
+  const { signout, user } = useAuth();
+  const { messages, loading, sendMessage, stopGeneration, resetChat, setMessages } = useChatStream();
 
   // Layout State
-  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(typeof window !== 'undefined' ? window.innerWidth >= 1024 : true);
   const [isResourceOpen, setIsResourceOpen] = useState(true);
-  const [isMobile, setIsMobile] = useState(false);
-
-  // Chat State
-  const [chatHistory, setChatHistory] = useState(() => [createNewChat()]);
-  const [activeChatId, setActiveChatId] = useState(chatHistory[0].id);
   const [input, setInput] = useState("");
-  const [loading, setLoading] = useState(false);
+  const [chatHistoryList, setChatHistoryList] = useState([]);
+  const [activeChatId, setActiveChatId] = useState(null);
 
-  // Refs
-  const bottomRef = useRef(null);
-  const abortControllerRef = useRef(null);
-  const profileRef = useRef(null);
-  const [settingsOpen, setSettingsOpen] = useState(false);
+  // Auto-scroll logic
+  const messagesEndRef = useRef(null);
+  const scrollContainerRef = useRef(null);
+  const [shouldAutoScroll, setShouldAutoScroll] = useState(true);
 
-  // Responsive Check
+  const scrollToBottom = (smooth = true) => {
+    if (messagesEndRef.current) {
+      messagesEndRef.current.scrollIntoView({ behavior: smooth ? "smooth" : "auto" });
+    }
+  };
+
+  // Monitor scroll position to determine if we should stick to bottom
+  const handleScroll = () => {
+    const container = scrollContainerRef.current;
+    // ... logic same as previous success ...
+    if (!container) return;
+
+    const { scrollTop, scrollHeight, clientHeight } = container;
+    // If we are within 100px of the bottom, we are "at the bottom"
+    const isAtBottom = scrollHeight - scrollTop - clientHeight < 100;
+    setShouldAutoScroll(isAtBottom);
+  };
+
+  // Scroll on new messages if we should
   useEffect(() => {
-    const checkMobile = () => {
-      const mobile = window.innerWidth <= 900;
-      setIsMobile(mobile);
-      if (mobile) {
-        setIsSidebarOpen(false);
+    if (shouldAutoScroll) {
+      scrollToBottom();
+    }
+  }, [messages, loading, shouldAutoScroll]);
+
+  // Force scroll on new session or user message
+  useEffect(() => {
+    scrollToBottom(false);
+    setShouldAutoScroll(true);
+  }, [activeChatId]);
+
+
+  useEffect(() => {
+    const checkScreenSize = () => {
+      if (window.innerWidth >= 1024) {
+        setIsResourceOpen(true);
+        setIsSidebarOpen(true);
+      } else {
         setIsResourceOpen(false);
+        setIsSidebarOpen(false);
       }
     };
-    checkMobile();
-    window.addEventListener('resize', checkMobile);
-    return () => window.removeEventListener('resize', checkMobile);
+
+    // Initial check
+    checkScreenSize();
+
+    // Listen for resize (e.g. Inspect Element -> Toggle Device)
+    window.addEventListener('resize', checkScreenSize);
+    return () => window.removeEventListener('resize', checkScreenSize);
   }, []);
 
-  const activeChat = useMemo(() =>
-    chatHistory.find(c => c.id === activeChatId) || chatHistory[0],
-    [chatHistory, activeChatId]);
+  const [historyLoading, setHistoryLoading] = useState(false);
 
-  // Combined Citations for Resource Panel
-  const allCitations = useMemo(() => {
-    return activeChat.messages
-      .filter(m => m.citations && m.citations.length > 0)
-      .flatMap(m => m.citations);
-  }, [activeChat]);
-
-  // Scroll to bottom
+  // Fetch History on specific user load
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [activeChat.messages, loading]);
+    if (user?.email) {
+      const fetchHistory = async () => {
+        setHistoryLoading(true);
+        try {
+          const res = await api.get(`/chat/history?user_email=${user.email}`);
+          setChatHistoryList(res.data);
+        } catch (e) {
+          console.error("Failed to load history", e);
+        } finally {
+          setHistoryLoading(false);
+        }
+      };
+      fetchHistory();
+    }
+  }, [user]);
 
-  function stopGeneration() {
-    abortControllerRef.current?.abort();
-    setLoading(false);
-  }
-
-  function onNewChat() {
-    const newChat = createNewChat();
-    setChatHistory(prev => [newChat, ...prev]);
-    setActiveChatId(newChat.id);
-    setInput("");
-    if (isMobile) setIsSidebarOpen(false);
-  }
-
-  async function send() {
-    if (!input.trim() || loading) return;
-
-    const userMsg = { role: "user", text: input };
-    const botMsg = { role: "assistant", text: "", citations: [], status: "Initializing..." };
-
-    const updatedHistory = chatHistory.map(chat =>
-      chat.id === activeChatId
-        ? { ...chat, messages: [...chat.messages, userMsg, botMsg] }
-        : chat
-    );
-    setChatHistory(updatedHistory);
-    setInput("");
-    setLoading(true);
-
-    abortControllerRef.current = new AbortController();
+  // Handle Chat Selection
+  const handleSelectChat = async (id) => {
+    setActiveChatId(id);
 
     try {
-      const apiHistory = activeChat.messages.map(m => ({ role: m.role, content: m.text }));
-      apiHistory.push({ role: 'user', content: userMsg.text }); // Add current
-
-      let acc = "";
-      let currentCitations = [];
-      let currentStatus = "Analyzing...";
-
-      for await (const event of streamAnswer(userMsg.text, apiHistory, abortControllerRef.current.signal)) {
-        if (event.type === 'content') {
-          acc += event.data;
-          currentStatus = "";
-        } else if (event.type === 'citations') {
-          currentCitations = event.data;
-        } else if (event.type === 'status') {
-          currentStatus = event.data;
-        } else if (event.type === 'error') {
-          acc += `\n\n**Error:** ${event.data}`;
-        }
-
-        setChatHistory(prev => prev.map(chat => {
-          if (chat.id !== activeChatId) return chat;
-          const newMsgs = [...chat.messages];
-          newMsgs[newMsgs.length - 1] = {
-            ...newMsgs[newMsgs.length - 1],
-            text: acc,
-            citations: currentCitations,
-            status: currentStatus
-          };
-          return { ...chat, messages: newMsgs };
-        }));
-      }
+      const res = await api.get(`/chat/session/${id}`);
+      setMessages(res.data);
+      setShouldAutoScroll(true); // Reset scroll on chat switch
     } catch (e) {
-      if (e.name !== 'AbortError') console.error(e);
-    } finally {
-      setLoading(false);
-      abortControllerRef.current = null;
+      console.error("Failed to load session", e);
     }
-  }
+  };
+
+  // Derived state for citations
+  const allCitations = useMemo(() => {
+    return messages
+      .filter(m => m.citations && m.citations.length > 0)
+      .flatMap(m => m.citations);
+  }, [messages]);
+
+  const handleSend = () => {
+    if (!input.trim()) return;
+
+    // If no active chat, create one ID
+    let currentChatId = activeChatId;
+    if (!currentChatId) {
+      currentChatId = crypto.randomUUID();
+      setActiveChatId(currentChatId);
+      // Optimistically add to history
+      setChatHistoryList(prev => [{
+        id: currentChatId,
+        title: input.substring(0, 30) + "...",
+        last_interaction: new Date().toISOString()
+      }, ...prev]);
+    }
+
+    sendMessage(input, messages, user?.email, currentChatId);
+    setInput("");
+    setShouldAutoScroll(true); // Force scroll on send
+  };
+
+  const handleNewChat = () => {
+    resetChat();
+    setActiveChatId(null);
+    setInput("");
+  };
+
+  // Delete & Rename Modals State
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [chatToDelete, setChatToDelete] = useState(null);
+  const [isRenameModalOpen, setIsRenameModalOpen] = useState(false);
+  const [chatToRename, setChatToRename] = useState(null);
+  const [renameTitle, setRenameTitle] = useState("");
+
+  const handleDeleteChat = (e, id) => {
+    e.stopPropagation();
+    setChatToDelete(id);
+    setIsDeleteModalOpen(true);
+  };
+
+  const confirmDelete = async () => {
+    if (!chatToDelete) return;
+    try {
+      await api.delete(`/chat/session/${chatToDelete}`);
+      setChatHistoryList(prev => prev.filter(c => c.id !== chatToDelete));
+      if (activeChatId === chatToDelete) {
+        setActiveChatId(null);
+        resetChat();
+      }
+      setIsDeleteModalOpen(false);
+      setChatToDelete(null);
+    } catch (e) {
+      console.error("Failed to delete chat", e);
+    }
+  };
+
+  const handleRenameChat = (e, id, currentTitle) => {
+    e.stopPropagation();
+    setChatToRename(id);
+    setRenameTitle(currentTitle);
+    setIsRenameModalOpen(true);
+  };
+
+  const confirmRename = async () => {
+    if (!chatToRename) return;
+    try {
+      await api.put(`/chat/session/${chatToRename}`, { title: renameTitle });
+      setChatHistoryList(prev => prev.map(c =>
+        c.id === chatToRename ? { ...c, title: renameTitle } : c
+      ));
+      setIsRenameModalOpen(false);
+      setChatToRename(null);
+    } catch (e) {
+      console.error("Failed to rename chat", e);
+    }
+  };
 
   return (
-    <div className={`chat-layout ${!isSidebarOpen ? "collapsed" : ""}`}>
-      {/* --- Sidebar --- */}
-      <aside className={`sidebar ${isSidebarOpen ? "open" : ""}`}>
-        <div className="brand-row">
-          <div style={{ width: 32, height: 32, borderRadius: 8, background: '#1E40AF', color: 'white', display: 'grid', placeItems: 'center', fontWeight: 'bold' }}>S</div>
-          <div>
-            <div className="app-title">AI Legal Assistant</div>
-            <div className="badge">PRO</div>
-          </div>
-        </div>
+    <ChatLayout
+      isSidebarOpen={isSidebarOpen}
+      setIsSidebarOpen={setIsSidebarOpen}
+      user={user}
+      onSignOut={signout}
+      chatHistory={chatHistoryList}
+      activeChatId={activeChatId}
+      onSelectChat={handleSelectChat}
+      onNewChat={handleNewChat}
+      historyLoading={historyLoading}
+      onDeleteChat={handleDeleteChat}
+      onRenameChat={handleRenameChat}
+      isResourceOpen={isResourceOpen}
+      setIsResourceOpen={setIsResourceOpen}
+    >
+      <div className="flex w-full h-full overflow-hidden relative">
 
-        <button className="new-chat" onClick={onNewChat}>
-          <Plus size={18} /> New Conversation
-        </button>
+        {/* Messages Area */}
+        <div className="flex-1 flex flex-col h-full relative">
 
-        <div className="convo-list">
-          {chatHistory.map(chat => (
-            <div
-              key={chat.id}
-              className={`convo-item ${chat.id === activeChatId ? 'active' : ''}`}
-              onClick={() => { setActiveChatId(chat.id); if (isMobile) setIsSidebarOpen(false); }}
-            >
-              {chat.title}
+          <div
+            className="flex-1 overflow-y-auto px-4 sm:px-6 custom-scrollbar scroll-smooth"
+            ref={scrollContainerRef}
+            onScroll={handleScroll}
+          >
+            <div className="max-w-4xl mx-auto pt-8 pb-10 min-h-full flex flex-col justify-start">
+              {messages.length === 0 && (
+                <div className="flex-1 flex flex-col justify-center items-center text-center -mt-20">
+
+                  {/* Background Accents (Subtle Glow) */}
+                  <div className="absolute inset-0 pointer-events-none overflow-hidden">
+                    <div className="absolute top-[30%] left-[50%] -translate-x-1/2 -translate-y-1/2 w-[800px] h-[800px] bg-gradient-to-tr from-blue-50/40 to-indigo-50/40 rounded-full blur-3xl opacity-70"></div>
+                  </div>
+
+                  {/* Hero Icon */}
+                  <div className="relative z-10 mb-8">
+                    <div className="w-20 h-20 mx-auto bg-gradient-to-br from-white to-blue-50 rounded-2xl shadow-xl shadow-blue-100/50 flex items-center justify-center ring-1 ring-blue-100/50 mb-6">
+                      <Scale className="w-10 h-10 text-blue-600" strokeWidth={1.5} />
+                    </div>
+                    {/* Main Title */}
+                    <h1 className="text-4xl sm:text-5xl font-bold text-slate-900 mb-6 tracking-tight">
+                      <span className="bg-clip-text text-transparent bg-gradient-to-r from-slate-900 via-blue-800 to-slate-900">Pakistan AI</span>
+                      <br />
+                      <span className="text-blue-600 relative inline-block">
+                        Legal Assistant
+                        <svg className="absolute w-full h-3 -bottom-1 left-0 text-blue-200 -z-10" viewBox="0 0 100 10" preserveAspectRatio="none"><path d="M0 5 Q 50 10 100 5" stroke="currentColor" strokeWidth="8" fill="none" opacity="0.6" /></svg>
+                      </span>
+                    </h1>
+                    {/* Subtitle */}
+                    <p className="text-slate-500 max-w-2xl mx-auto mb-16 text-lg leading-relaxed font-light">
+                      Your intelligent companion for navigating <span className="text-slate-700 font-medium">Pakistani Laws</span>, analyzing <span className="text-slate-700 font-medium">Case Precedents</span>, and generating <span className="text-slate-700 font-medium">Legal Insights</span>.
+                    </p>
+                  </div>
+
+                  <div className="hidden"></div>
+                </div>
+              )}
+
+              {messages.map((msg, i) => (
+                <MessageBubble
+                  key={msg.id || i}
+                  {...msg}
+                  citations={msg.citations || []}
+                  onCitationClick={(cite) => setIsResourceOpen(true)}
+                  userPhoto={user?.picture || user?.photoURL || user?.avatar_url}
+                  isStreaming={loading && i === messages.length - 1 && msg.role === 'assistant'}
+                />
+              ))}
+              <div ref={messagesEndRef} className="h-4" />
             </div>
-          ))}
-        </div>
-
-        <div className="profile" ref={profileRef} style={{ position: 'relative' }}>
-          {settingsOpen && (
-            <div style={{ position: 'absolute', bottom: '60px', left: '10px', width: '260px', background: '#1E293B', border: '1px solid #334155', borderRadius: '8px', padding: '8px', zIndex: 100 }}>
-              <button
-                onClick={() => { signout(); nav('/login'); }}
-                style={{ display: 'flex', gap: 8, alignItems: 'center', width: '100%', padding: 10, background: 'transparent', border: 'none', color: '#EF4444', cursor: 'pointer', fontWeight: 500 }}
-              >
-                <LogOut size={16} /> Log Out
-              </button>
-            </div>
-          )}
-          <div className="avatar"><User size={16} /></div>
-          <div style={{ flex: 1, overflow: 'hidden' }}>
-            <div style={{ fontWeight: 500 }}>{user?.name || "Legal Professional"}</div>
-            <div style={{ fontSize: '0.75rem', opacity: 0.7 }}>{user?.email}</div>
-          </div>
-          <button style={{ background: 'transparent', border: 'none', color: 'white', cursor: 'pointer' }} onClick={() => setSettingsOpen(!settingsOpen)}>
-            <Settings size={18} />
-          </button>
-        </div>
-      </aside>
-
-      {/* --- Main Area --- */}
-      <div className="main">
-        <div className="topbar">
-          <button className="hamburger" onClick={() => setIsSidebarOpen(!isSidebarOpen)}>
-            <Menu size={20} />
-          </button>
-
-          <div className="status-indicator">
-            {loading && <><div className="status-dot"></div><span className="status-text">Processing Legal Inquiry...</span></>}
           </div>
 
-          <button style={{ background: 'transparent', border: 'none', color: '#64748B', cursor: 'pointer' }} onClick={() => setIsResourceOpen(!isResourceOpen)} title="Toggle Citations">
-            <FileText size={20} color={isResourceOpen ? '#1E40AF' : 'currentColor'} />
-          </button>
+          <ChatInput
+            input={input}
+            setInput={setInput}
+            onSend={handleSend}
+            loading={loading}
+            onStop={stopGeneration}
+          />
         </div>
 
-        <div className="messages">
-          {activeChat.messages.map((msg, i) => (
-            <Bubble
-              key={i}
-              role={msg.role}
-              content={msg.text}
-              status={msg.status}
-              isStreaming={loading && i === activeChat.messages.length - 1}
+        {/* Resource Panel */}
+        {/* Desktop: Shifts content */}
+        <div className={`hidden lg:block transition-all duration-300 ease-in-out border-l border-slate-200 bg-white ${isResourceOpen ? 'w-80' : 'w-0 overflow-hidden'}`}>
+          <div className="w-80 h-full"> {/* Inner container to prevent squishing */}
+            <ResourcePanel
+              isOpen={isResourceOpen}
+              onClose={() => setIsResourceOpen(false)}
+              citations={allCitations}
+              isMobile={false}
             />
-          ))}
-          <div ref={bottomRef} style={{ height: 1 }} />
+          </div>
         </div>
 
-        <div className="composer-area">
-          <div className={`composer-box ${loading ? "pulsing" : ""}`}>
-            <button className="action-btn" title="Attach Document"><Paperclip size={20} /></button>
-            <input
-              className="composer-input"
-              placeholder="Ask a question about Pakistani law..."
-              value={input}
-              onChange={e => setInput(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && !loading && send()}
-              disabled={loading}
-            />
-            <button className="action-btn" title="Voice"><Mic size={20} /></button>
-
-            {loading ? (
-              <button className="action-btn stop-btn" onClick={stopGeneration}><StopCircle size={20} /></button>
-            ) : (
-              <button className="action-btn send-btn" onClick={send} disabled={!input.trim()}><Send size={18} /></button>
+        {/* Mobile/Tablet: Overlay with Backdrop */}
+        <div className={clsx("lg:hidden fixed inset-0 z-50 pointer-events-none", isResourceOpen ? "pointer-events-auto" : "")}>
+          {/* Backdrop */}
+          <div
+            className={clsx(
+              "absolute inset-0 bg-black/40 backdrop-blur-sm transition-opacity duration-300",
+              isResourceOpen ? "opacity-100" : "opacity-0"
             )}
-          </div>
-          <div className="disclaimer">
-            AI-generated insights are for informational purposes only and do not constitute legal advice.
+            onClick={() => setIsResourceOpen(false)}
+          />
+          {/* Panel */}
+          <div className={clsx(
+            "absolute inset-y-0 right-0 h-full w-80 max-w-[85vw] shadow-2xl transition-transform duration-300 ease-out transform",
+            isResourceOpen ? "translate-x-0" : "translate-x-full"
+          )}>
+            <ResourcePanel
+              isOpen={true} // Always render internal content, parent controls visibility via transform
+              onClose={() => setIsResourceOpen(false)}
+              citations={allCitations}
+              isMobile={true}
+            />
           </div>
         </div>
+
       </div>
 
-      {/* --- Resource Panel --- */}
-      <ResourcePanel isOpen={isResourceOpen} citations={allCitations} />
-    </div>
+      {/* Delete Confirmation Modal */}
+      {isDeleteModalOpen && (
+        <Modal
+          isOpen={isDeleteModalOpen}
+          onClose={() => setIsDeleteModalOpen(false)}
+          title="Delete Conversation"
+        >
+          <div className="space-y-4">
+            <p className="text-slate-600">
+              Are you sure you want to delete this conversation? This action cannot be undone.
+            </p>
+            <div className="flex justify-end gap-3 pt-2">
+              <button
+                onClick={() => setIsDeleteModalOpen(false)}
+                className="px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmDelete}
+                className="px-4 py-2 text-sm font-medium text-white bg-red-600 hover:bg-red-700 rounded-lg transition-colors shadow-sm"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* Rename Modal */}
+      {isRenameModalOpen && (
+        <Modal
+          isOpen={isRenameModalOpen}
+          onClose={() => setIsRenameModalOpen(false)}
+          title="Rename Conversation"
+        >
+          <form onSubmit={(e) => { e.preventDefault(); confirmRename(); }} className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">
+                Conversation Title
+              </label>
+              <input
+                type="text"
+                value={renameTitle}
+                onChange={(e) => setRenameTitle(e.target.value)}
+                className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                placeholder="Enter a new title..."
+                autoFocus
+              />
+            </div>
+            <div className="flex justify-end gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setIsRenameModalOpen(false)}
+                className="px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                className="px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors shadow-sm"
+              >
+                Save
+              </button>
+            </div>
+          </form>
+        </Modal>
+      )}
+    </ChatLayout>
   );
 }

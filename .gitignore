@@ -1,28 +1,53 @@
-# Python virtual environments
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+.coverage
+htmlcov/
+
+# --- Virtual Environments ---
 .venv/
 backend/.venv/
+env/
+venv/
+ENV/
 
-# Python cache
-__pycache__/
-backend/__pycache__/
-
-# Python compiled files
-*.pyc
-
-# Node.js dependencies
+# --- Node.js / Frontend ---
 frontend/node_modules/
+frontend/dist/
+frontend/build/
+frontend/.eslintcache
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
 
-# Secret environment files (VERY IMPORTANT)
+# --- Environment Variables (Secrets) ---
 .env
 backend/.env
 frontend/.env
+*.env.local
+*.env.development.local
+*.env.test.local
+*.env.production.local
 
-# Log files
-*.log
-
-# OS / IDE files
-.DS_Store
-.vscode/
-
-# Add this line
+# --- Database / Data ---
+*.sqlite3
+*.db
 backend/vectorstore/
+# Exclude raw data (PDFs) to keep repo light. 
+# Comment out the next line if you WANT to include the PDFs in GitHub.
+backend/data/
+
+# --- Logs ---
+*.log
+logs/
+
+# --- IDE / OS ---
+.vscode/
+!.vscode/settings.json
+.idea/
+*.swp
+.DS_Store
+Thumbs.db

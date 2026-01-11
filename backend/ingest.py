@@ -83,15 +83,15 @@ def main():
                 skipped_empty += 1
                 continue
 
-            # Commit this file now — so a later failure won’t wipe progress
+            # Commit this file now
             db.add_documents(chunks)
-            db.persist()
+            # db.persist()  # No longer needed in newer langchain-chroma
             ok += 1
-            print(f"   └─ [OK] added {len(chunks)} chunks")
+            print(f"   -> [OK] added {len(chunks)} chunks")
         except Exception as e:
             fail += 1
             # Don’t crash the whole run — just report the file that failed
-            print(f"   └─ [FAIL] {f.name} -> {e.__class__.__name__}: {e}")
+            print(f"   -> [FAIL] {f.name} -> {e.__class__.__name__}: {e}")
 
     # Final stats + collection count
     try:

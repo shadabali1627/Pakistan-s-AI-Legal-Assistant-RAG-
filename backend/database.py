@@ -34,3 +34,9 @@ def get_user_collection():
     if db is not None:
         return db["users"]
     return None
+
+def get_session_collection():
+    db = get_db()
+    if db is not None:
+        return db["sessions"]
+    return None

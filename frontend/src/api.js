@@ -8,13 +8,13 @@ const API_BASE = "http://127.0.0.1:8000";
  * @param {string} query The new user query
  * @param {Array<{role: string, content: string}>} history The previous chat messages
  */
-export async function* streamAnswer(query, history = [], signal = null) {
+export async function* streamAnswer(query, history = [], signal = null, user_email = null, session_id = null) {
   const resp = await fetch(`${API_BASE}/api/chat/stream`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     signal, // Pass the aborter signal
     // 1. Send both the query and the history
-    body: JSON.stringify({ query, history, k: 6 }), // k is a default, you can make it dynamic
+    body: JSON.stringify({ query, history, k: 6, user_email, session_id }), // k is a default, you can make it dynamic
   });
   if (!resp.ok || !resp.body) {
     throw new Error(`HTTP ${resp.status}`);

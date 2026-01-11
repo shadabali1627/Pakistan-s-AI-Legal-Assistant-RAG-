@@ -3,8 +3,7 @@ uvicorn[standard]
 python-dotenv
 pydantic==2.12.4
 
-# LangChain stack (unpinned to get latest compatible)
-langchain
+# LangChain stack
 langchain-core
 langchain-community
 langchain-text-splitters
@@ -12,10 +11,10 @@ langchain-google-genai
 langchain-chroma
 
 # Other dependencies (unpinned to resolve conflicts)
-google-generativeai
+google-genai
 chromadb
 pypdf
 unstructured[doc,docx]
 motor
 google-auth
-passlib[bcrypt]
+bcrypt

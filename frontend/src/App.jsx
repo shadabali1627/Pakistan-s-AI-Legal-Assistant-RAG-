@@ -2,9 +2,10 @@ import { Routes, Route, Navigate } from "react-router-dom";
 import Login from "./pages/Login.jsx";
 import Signup from "./pages/Signup.jsx";
 import Chat from "./pages/Chat.jsx";
-import { useAuth } from "./auth.js";
+import { useAuth } from "./hooks/useAuth";
 
 import ForgotPassword from "./pages/ForgotPassword.jsx";
+import GoogleCallback from "./pages/GoogleCallback.jsx";
 
 export default function App() {
   const { user } = useAuth();
@@ -14,6 +15,7 @@ export default function App() {
       <Route path="/login" element={<Login />} />
       <Route path="/signup" element={<Signup />} />
       <Route path="/forgot-password" element={<ForgotPassword />} />
+      <Route path="/auth/callback" element={<GoogleCallback />} />
       <Route path="/chat" element={user ? <Chat /> : <Navigate to="/login" />} />
       <Route path="*" element={<Navigate to="/" />} />
     </Routes>

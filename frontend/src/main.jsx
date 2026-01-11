@@ -2,7 +2,7 @@ import React from "react";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter } from "react-router-dom";
 import App from "./App.jsx";
-import "./styles.css";
+import "./index.css";
 
 // --- FIX FOR HTTP DEPLOYMENT (Polyfill for crypto.randomUUID) ---
 // Browsers block randomUUID on insecure HTTP. This manually creates it.
@@ -19,13 +19,16 @@ if (!window.crypto.randomUUID) {
 // -------------------------------------------------------------
 
 import { GoogleOAuthProvider } from '@react-oauth/google';
+import { AuthProvider } from './hooks/useAuth';
 
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID;
 
 createRoot(document.getElementById("root")).render(
   <GoogleOAuthProvider clientId={GOOGLE_CLIENT_ID}>
-    <BrowserRouter>
-      <App />
-    </BrowserRouter>
+    <AuthProvider>
+      <BrowserRouter>
+        <App />
+      </BrowserRouter>
+    </AuthProvider>
   </GoogleOAuthProvider>
 );
