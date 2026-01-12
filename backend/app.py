@@ -39,6 +39,21 @@ INDEX_PATH = FRONTEND_DIST / "index.html"
 if STATIC_DIR.exists():
     app.mount("/assets", StaticFiles(directory=str(STATIC_DIR)), name="assets")
 
+@app.get("/logo.svg")
+async def serve_logo():
+    logo_path = FRONTEND_DIST / "logo.svg"
+    if logo_path.exists():
+        return FileResponse(str(logo_path))
+    return {"error": "Logo not found"}
+
+@app.get("/favicon.ico")
+async def serve_favicon():
+    fav_path = FRONTEND_DIST / "favicon.ico"
+    if fav_path.exists():
+        return FileResponse(str(fav_path))
+    # Fallback/Empty response if no favicon
+    return {"error": "Favicon not found"}
+
 # Catch-all route for SPA
 @app.get("/{full_path:path}")
 async def serve_react_app(full_path: str):
