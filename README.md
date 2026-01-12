@@ -17,7 +17,7 @@ We use state-of-the-art Google AI models via the LangChain framework:
 
 | Component | Model / Technology | Description |
 | :--- | :--- | :--- |
-| **LLM (Generation)** | **Gemini 1.5 Flash** (or `gemma-2-9b-it`) | Generates human-like, context-aware answers. Configurable via `.env`. |
+| **LLM (Generation)** | **gemma-3n-e4b-it** | Generates human-like, context-aware answers. Configurable via `.env`. |
 | **Embeddings** | **text-embedding-004** | Converts legal text into 768-dimensional vectors for semantic search. |
 | **Vector Database** | **ChromaDB** | Stores and indexes document embeddings for fast retrieval. |
 | **Orchestration** | **LangChain** | Manages the RAG pipeline (Retrieval + Generation). |
