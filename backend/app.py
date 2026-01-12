@@ -16,9 +16,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-@app.get("/")
-def root():
-    return {"status": "ok", "message": "AI Legal Assistant API is running!"}
+
 
 # Mount routes
 app.include_router(chat.router, prefix="/api")
