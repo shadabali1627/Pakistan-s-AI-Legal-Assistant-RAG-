@@ -16,7 +16,7 @@ ENV/
 
 # --- Node.js / Frontend ---
 frontend/node_modules/
-frontend/dist/
+# frontend/dist/  <-- UN-IGNORED FOR EASY DEPLOYMENT ON 1GB SERVER
 frontend/build/
 frontend/.eslintcache
 npm-debug.log*
