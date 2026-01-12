@@ -1,0 +1,15 @@
+[Unit]
+Description=AI Legal Assistant Backend
+After=network.target
+
+[Service]
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/home/ubuntu/Pakistan-s-AI-Legal-Assistant-RAG-/backend
+Environment="PATH=/home/ubuntu/Pakistan-s-AI-Legal-Assistant-RAG-/backend/.venv/bin:/usr/bin:/bin"
+ExecStart=/home/ubuntu/Pakistan-s-AI-Legal-Assistant-RAG-/backend/.venv/bin/uvicorn backend.app:app --host 0.0.0.0 --port 8000
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
