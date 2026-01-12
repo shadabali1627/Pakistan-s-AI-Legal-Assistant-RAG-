@@ -1,119 +1,125 @@
-# AI Legal Assistant RAG Chatbot
+# AI Legal Assistant RAG Chatbot ⚖️🤖
 
-![Status](https://img.shields.io/badge/Status-Active-success)
+![Status](https://img.shields.io/badge/Status-Deployed-success)
+![Python](https://img.shields.io/badge/Python-3.10%2B-blue)
+![React](https://img.shields.io/badge/React-18-blue)
+![FastAPI](https://img.shields.io/badge/FastAPI-0.109-green)
 
-[**Live Demo**](https://pakistan-legal-assistant.gleeze.com)
+[**🌐 Live Demo: https://ai-legal-assistant.webredirect.org**](https://ai-legal-assistant.webredirect.org)
 
-An AI-powered **Pakistan Legal Assistant** Chatbot that uses Retrieval-Augmented Generation (RAG) to provide accurate legal information specifically related to **Pakistan's law** based on uploaded documents. The application features a modern React frontend and a robust FastAPI backend powered by LangChain and Google's Gemini models.
+An advanced **Retrieval-Augmented Generation (RAG)** chatbot designed to answer questions about **Pakistan's Law System**. It ingests legal documents (PDFs), vectorizes them for semantic search, and uses Google's Gemini LLMs to generate accurate, cited responses.
+
+---
+
+## 🧠 AI Models & Technology
+
+We use state-of-the-art Google AI models via the LangChain framework:
+
+| Component | Model / Technology | Description |
+| :--- | :--- | :--- |
+| **LLM (Generation)** | **Gemini 1.5 Flash** (or `gemma-2-9b-it`) | Generates human-like, context-aware answers. Configurable via `.env`. |
+| **Embeddings** | **text-embedding-004** | Converts legal text into 768-dimensional vectors for semantic search. |
+| **Vector Database** | **ChromaDB** | Stores and indexes document embeddings for fast retrieval. |
+| **Orchestration** | **LangChain** | Manages the RAG pipeline (Retrieval + Generation). |
+| **Database** | **MongoDB Atlas** | Stores user chat history and session metadata. |
+
+---
 
 ## 🚀 Features
 
--   **RAG-powered Chatbot**: Queries a vector database to retrieve relevant legal context before answering.
--   **Document Ingestion**: Supports PDF and docx ingestion for building the knowledge base.
--   **Modern UI**: Built with React and Vite, featuring a responsive design.
--   **FastAPI Backend**: High-performance asynchronous API for handling chat requests.
--   **Vector Search**: Uses ChromaDB for efficient similarity search of legal documents.
+-   **⚡ Real-Time Streaming**: Responses are streamed token-by-token (typewriter effect) using Server-Sent Events (SSE).
+-   **📚 Citation Support**: Every answer cites the source PDF and page number used.
+-   **🔐 Secure Authentication**: Google OAuth 2.0 integration for secure user login.
+-   **📱 Responsive UI**: Modern, mobile-friendly interface built with React & Tailwind/CSS.
+-   **☁️ Cloud Native**: Fully deployed on **AWS EC2** with Nginx reverse proxy and Systemd auto-healing.
+-   **🧹 Auto-History**: Saves your conversations to MongoDB for easy retrieval.
+
+---
 
 ## 🛠️ Tech Stack
 
-### Frontend
+### **Frontend**
 -   **Framework**: React (Vite)
--   **Routing**: React Router
--   **Styling**: CSS Modules / Vanilla CSS
--   **Markdown Support**: `react-markdown`, `remark-gfm`
+-   **State**: React Hooks (Custom Auth & Chat hooks)
+-   **HTTP Client**: Axios (with Interceptors)
+-   **Styling**: Modern CSS (Glassmorphism design)
 
-### Backend
--   **Framework**: FastAPI
--   **LLM Integration**: LangChain, Google Gemini (GenAI)
--   **Vector Store**: ChromaDB
--   **Document Processing**: `pypdf`, `unstructured`
+### **Backend**
+-   **Framework**: FastAPI (Async/Await)
+-   **Server**: Uvicorn (ASGI)
+-   **Search**: ChromaDB (Local vector store)
+-   **PDF Processing**: `pypdf`, `recursive-character-text-splitter`
+
+### **Deployment (DevOps)**
+-   **Server**: AWS EC2 (Ubuntu 24.04 LTS)
+-   **WebServer**: Nginx (Reverse Proxy, SSL, Compression)
+-   **Process Manager**: Systemd (`ai-legal-assistant.service`)
+-   **Security**: Let's Encrypt SSL, UFW Firewall
+
+---
 
 ## 📂 Project Structure
 
 ```
-├── backend/            # FastAPI backend application
-│   ├── data/           # Directory for legal documents
-│   ├── routes/         # API routes
-│   ├── utils/          # Utility functions
-│   ├── vectorstore/    # ChromaDB storage
-│   ├── app.py          # Main application entry point
-│   ├── ingest.py       # Script to ingest documents
-│   ├── rag_pipeline.py # RAG logic and chain
-│   └── requirements.txt
+├── backend/            # FastAPI Application
+│   ├── data/pdfs/      # Folder for raw PDF documents
+│   ├── routes/         # API Endpoints (Auth, Chat)
+│   ├── vectorstore/    # ChromaDB persistent storage
+│   ├── app.py          # Main entry point
+│   ├── ingest.py       # RAG Ingestion Script
+│   └── rag_pipeline.py # Core RAG Logic
 │
-└── frontend/           # React frontend application
-    ├── src/            # Source code
-    ├── public/         # Public assets
-    ├── index.html      # Entry HTML
-    ├── package.json    # Dependencies
-    └── vite.config.js  # Vite configuration
+└── frontend/           # React Application
+    ├── src/            # Components & Hooks
+    ├── dist/           # Production Build
+    └── vite.config.js  # Build Configuration
 ```
 
-## ⚡ Getting Started
+---
 
-### Prerequisites
--   Node.js (v18+)
--   Python (v3.9+)
--   Google API Key (for Gemini)
+## ⚡ Deployment & Setup Guide
 
-### 1. Backend Setup
+### 1. Local Development by following steps:
 
-Navigate to the backend directory:
+**Backend:**
 ```bash
 cd backend
-```
-
-Create and activate a virtual environment:
-```bash
-# Windows
 python -m venv .venv
-.venv\Scripts\activate
-
-# macOS/Linux
-python3 -m venv .venv
-source .venv/bin/activate
-```
-
-Install dependencies:
-```bash
+source .venv/bin/activate  # or .venv\Scripts\activate on Windows
 pip install -r requirements.txt
-```
-
-Set up environment variables:
-Create a `.env` file in the `backend` directory and add your Google API key:
-```env
-GOOGLE_API_KEY=your_api_key_here
-```
-
-(Optional) Ingest documents:
-If you have documents in the `data/` folder, run the ingestion script:
-```bash
-python ingest.py
-```
-
-Run the backend server:
-```bash
+# Create .env file with GOOGLE_API_KEY, MONGODB_URL
 uvicorn app:app --reload
 ```
-The API will be available at `http://localhost:8000`.
 
-### 2. Frontend Setup
-
-Navigate to the frontend directory:
+**Frontend:**
 ```bash
 cd frontend
-```
-
-Install dependencies:
-```bash
 npm install
-```
-
-Run the development server:
-```bash
 npm run dev
 ```
-The application will run at `http://localhost:5173`.
+
+### 2. AWS EC2 Deployment Commands
+
+**Restart Server:**
+```bash
+sudo systemctl restart ai-legal-assistant
+```
+
+**View Logs:**
+```bash
+sudo journalctl -u ai-legal-assistant -f
+```
+
+**Re-Ingest Data (Update Knowledge Base):**
+```bash
+sudo systemctl stop ai-legal-assistant
+cd ~/Pakistan-s-AI-Legal-Assistant-RAG-
+source backend/.venv/bin/activate
+python -m backend.ingest
+sudo systemctl start ai-legal-assistant
+```
+
+---
 
 ## 📝 License
 
