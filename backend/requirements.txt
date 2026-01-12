@@ -18,3 +18,4 @@ pypdf
 motor
 google-auth
 bcrypt
+pyjwt
